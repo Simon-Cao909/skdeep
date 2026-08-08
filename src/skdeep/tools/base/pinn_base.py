@@ -10,7 +10,7 @@ class PINN(km.Model):
                  mins,
                  maxs,
                  model,
-                 calc_eqn,
+                 calc_pde,
                  calc_bound_eqn,
                  constants,
                  data,
@@ -22,7 +22,7 @@ class PINN(km.Model):
         self.maxs = np.asarray(maxs)
 
         self.model = model
-        self.calc_eqn = calc_eqn
+        self.calc_pde = calc_pde
         self.calc_bound_eqn = calc_bound_eqn
 
         self.constants = constants
@@ -35,11 +35,17 @@ class PINN(km.Model):
     def metrics(self):
         return [self.loss_tracker]
 
-    def _get_loss(self,X_r):
-        loss = ko.sum(ko.square(self.calc_eqn(X_r)))*self.loss_weighting['pde']
+    def get_loss(self,X_r):
+        pde_loss = self.calc_pde(X_r)
+        bc_loss = self.calc_bound_eqn(self.X_data)
 
-        for i in range(len(self.X_data)):
-            loss += ko.sum(ko.square(self.calc_bound_eqn(self.X_data,i)))*self.loss_weighting['conditions']
+        loss = 0
+
+        for pde in pde_loss:
+            loss += ko.sum(ko.square(pde))*self.loss_weighting['pde']
+
+        for bc in bc_loss:
+            loss += ko.sum(ko.square(bc))*self.loss_weighting['conditions']
 
         if self.data is not None:
             pred = self.model(self.data[:,0:-1])
@@ -50,7 +56,7 @@ class PINN(km.Model):
     def train_step(self,X_r):
         with tf.GradientTape() as tape:
             trainable_variables = self.trainable_variables + [val for val in self.constants.values() if val.trainable]
-            loss = self._get_loss(X_r)
+            loss = self.get_loss(X_r)
 
         grad_theta = tape.gradient(loss,trainable_variables)
         self.optimizer.apply_gradients(zip(grad_theta,trainable_variables))
@@ -60,7 +66,7 @@ class PINN(km.Model):
         return {'loss':self.loss_tracker.result()}
 
     def test_step(self,X_r):
-        loss = self._get_loss(X_r)
+        loss = self.get_loss(X_r)
         self.loss_tracker.update_state(loss)
 
         return {'loss':self.loss_tracker.result()}

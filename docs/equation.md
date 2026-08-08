@@ -1,5 +1,7 @@
 # For equation_structure
 
+## FOR SINGULAR EQUATIONS WITH SCALAR VALUED OUTPUTS
+
 ## If list or tuple
 
 equation_structure must be a list or tuple of dictionaries. The nth dictionary in this list or tuple denotes the nth term in the equation. When thinking of the equation, put all terms on one side so the other side is zero.
@@ -7,13 +9,13 @@ equation_structure must be a list or tuple of dictionaries. The nth dictionary i
 Each dictionary in this list can have keys and values:
 - KEY: 'variable' or 'var' (opt | default='u')
     - The value should be a string that is equal to the variable that this term will be focusing on.
-    - This variable can either be in self.variables or it can be 'u', where the focus will be the function. It can also be 'const', where then 1 will be the focus
-    - If this key is not included, the default variable will be 'u'
+    - This variable can either be in self.variables or it can be in self.functions, where the focus will be the function. It can also be 'const', where then 1 will be the focus
+    - If this key is not included, the default variable will be self.functions[0]
     - Ex. {'variable':'x',...}
 - KEY: 'derivatives' or 'deriv' (opt | default=[])
     - The value should be a list of variables
     - The nth element in this list denotes the variable that the nth derivative will be with respect to
-    - This should only be included if the value associated with 'variable' was 'u'. if the list has a nonzero length when the variable was not 'u', an error will be raised
+    - This should only be included if the value associated with 'variable' was a function. if the list has a nonzero length when the variable was not a function, an error will be raised
     - If this key is not included, the default will be [], meaning no derivatives will be taken
     - Ex. {'derivatives':['x','x','t'],...}
 - KEY: 'coefficient' or 'coef' (opt | default=1)
@@ -25,11 +27,11 @@ Each dictionary in this list can have keys and values:
         - The string can start with '-', where then the coefficient will just be negative
         - If the string is just numeric, that number will be the coefficient
         - If the string contains non-numeric characters, then the only non-numeric characters that can be there are:
-            - variables
+            - variables in self.variables
             - constants
             - integers (0-9)
                 - Note that '10' will be interpreted as 1 * 0. If you would like to use any multi-digit integer, you can include it in 'operator'
-            - 'u' (the function)
+            - functions in self.functions
             - 'π' or 'e'
             - '^' or '/'
         - where the respective thing will be multiplied if it is a value
@@ -230,6 +232,21 @@ conditions = [
     }
 
 ]
+```
+
+## FOR COUPLED EQUATIONS OR VECTOR VALUED OUTPUTS
+
+Nothing much changes here, except now you can specify multiple equations.
+
+You can simply write equation_structure as a list or tuple of list or tuples, where each inner list or tuple is of the form model_structure above.
+
+You can also write it as a list of strings, if you'd like to use the string parser.
+
+## Examples
+
+```python
+equation_structure = ["u_x - v",
+                      "v_x + u"]
 ```
 
 # For constants

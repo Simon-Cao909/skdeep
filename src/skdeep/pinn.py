@@ -16,7 +16,7 @@ from .tools.building.quick_parser import parse_eqn
 
 class DeepPINN(DeepEstimator):
 
-    scoring_func = staticmethod(lambda _,residual: -tf.reduce_mean(tf.square(residual)).numpy())
+    scoring_func = staticmethod(lambda _,residual: -residual)
     must_be_vector = True
 
     def __init__(self,
@@ -67,7 +67,7 @@ class DeepPINN(DeepEstimator):
             Numbers will be uniformly sampled between the bounds for the variable.
         
         constants : list or tuple or None, default=None
-            Simlar to model_structure but specifies the constants in the equation.
+            Similar to model_structure but specifies the constants in the equation.
 
             If None, there will be no constants.
 
@@ -142,8 +142,6 @@ class DeepPINN(DeepEstimator):
 
             If equation structure is not a list or tuple.
 
-            If any element in equation structure is not a dictionary.
-
             If conditions is not a list or tuple.
 
             If any element in conditions is not a dictionary.
@@ -161,6 +159,8 @@ class DeepPINN(DeepEstimator):
 
             If variables is empty.
 
+            If functions is empty.
+
             If validation split is not in [0,1). 
 
             If early stopping is True and validation split <= 0.
@@ -172,9 +172,13 @@ class DeepPINN(DeepEstimator):
         '''
         super()._validate_hyperparams()
 
-        validate_structure(self.equation_structure,"equation_structure")
+        validate_structure(self.equation_structure,"equation_structure",build_setting="not normal")
         validate_structure(self.conditions,"conditions",can_be_empty=True)
         validate_structure(self.constants,"constants",can_be_empty=True)
+
+        if any(isinstance(eqn,(list,tuple)) for eqn in self.equation_structure) and \
+           any(not isinstance(eqn,(list,tuple)) for eqn in self.equation_structure):
+            raise ValueError("equation_structure must contain only lists/tuples or only dicts")
 
         if not isinstance(self.bounds,dict):
             raise TypeError("bounds must be a dictionary")
@@ -182,20 +186,22 @@ class DeepPINN(DeepEstimator):
         if len(self.variables) == 0:
             raise ValueError("variables cannot be empty!")
 
+        if len(self.functions) == 0:
+            raise ValueError("functions cannot be empty!")
+
         if not isinstance(self.loss_weighting,dict):
             raise TypeError("loss_weighting must be a dictionary!")
 
         if 'pde' not in self.loss_weighting or 'conditions' not in self.loss_weighting or ('data' not in self.loss_weighting and self.data is not None):
             raise KeyError("loss_weighting must have keys 'pde', 'conditions', and 'data' (if data was given)")
 
-
     ### CALCULATING EQUATIONS AND CONDITIONS ###
 
-    def _calc_eqn(self,X_r,structure=None):
+    def _calc_eqn(self,X,structure):
         '''
         Parameters
         ----------
-        X_r : np.darray
+        X : np.darray
             An array of shape (n_samples,n_vars)
         
         structure : list, tuple, or None, default=None
@@ -203,17 +209,14 @@ class DeepPINN(DeepEstimator):
             
             Of the form equation_structure.
 
-            If None, self.equation_structure will be used.
-
         Returns
         -------
         result : tf.Tensor
             The result of the equation.
         '''
-        if structure is None: structure = self.equation_structure
 
-        if not tf.is_tensor(X_r):
-            X_r = tf.convert_to_tensor(X_r, dtype=tf.float32)
+        if not tf.is_tensor(X):
+            X = tf.convert_to_tensor(X, dtype=tf.float32)
 
         variables = self.variables
         functions = self.functions
@@ -223,7 +226,7 @@ class DeepPINN(DeepEstimator):
 
         with tf.GradientTape(persistent=True) as tape:
             for ind,v in enumerate(variables):
-                var_to_val[v] = X_r[:,ind:ind+1]
+                var_to_val[v] = X[:,ind:ind+1]
                 tape.watch(var_to_val[v])
 
             eval = self.model_(ko.stack([val[:,0] for val in var_to_val.values()],axis=1))
@@ -231,20 +234,24 @@ class DeepPINN(DeepEstimator):
                 func_to_val[f] = eval[:,ind:ind+1]
 
             for ind, struct in enumerate(structure):
-                derivs[ind] = u
-
                 var = get_any(struct,['variable','var'],fallback=functions[0])
                 derivatives = get_any(struct,['derivatives','deriv'],fallback=[])
 
-                derivs[ind] = func_to_val[var]
+                if var not in functions:
+                    if len(derivatives) != 0:
+                        raise ValueError("Derivatives can only operate on functions")
+                    continue
 
-                if var != 'u' and len(derivatives) != 0:
-                    raise ValueError("Derivatives can only operate on u")
+                derivs[ind] = func_to_val[var]
                 
                 for i,d in enumerate(derivatives[:-1]):
                     i += 1
     
-                    val = var_to_val[d]
+                    val = var_to_val.get(d)
+
+                    if val is None:
+                        raise ValueError(f"Derivative {d} is not a variable in the given variables")
+                    
                     grad = tape.gradient(derivs[ind],val)
     
                     if i % 10 == 1 and i % 100 != 11:
@@ -261,7 +268,7 @@ class DeepPINN(DeepEstimator):
                     
                     derivs[ind] = grad
 
-        const = ko.ones_like(X_r[:,0:1])
+        const = ko.ones_like(X[:,0:1])
 
         result = 0
 
@@ -273,8 +280,8 @@ class DeepPINN(DeepEstimator):
             operator = get_any(struct,['op','operator'],fallback=lambda x: x)
 
             if len(derivatives) != 0:
-                if var != 'u':
-                    raise ValueError("Derivatives can only operate on u")
+                if var not in functions:
+                    raise ValueError("Derivatives can only operate on functions")
                 
                 d = derivatives[-1]
                 grad = tape.gradient(derivs[ind],var_to_val[d])
@@ -302,8 +309,12 @@ class DeepPINN(DeepEstimator):
                         to_apply = None
                         op_change = False
 
-                        if char == 'u':
-                            to_apply = u
+                        if char in functions:
+                            to_apply = func_to_val[char]
+                        elif char in variables:
+                            to_apply = var_to_val[char]
+                        elif char in self.constants_:
+                            to_apply = self.constants_[char]
                         elif char.isnumeric():
                             to_apply = int(char)
                         elif char == 'π':
@@ -321,15 +332,6 @@ class DeepPINN(DeepEstimator):
                             coef_operator = 'mult'
                             op_change = True
 
-                        for v in variables:
-                            if char == v:
-                                to_apply = var_to_val[v]
-                                break
-
-                        for name,value in self.constants_.items():
-                            if char == name:
-                                to_apply = value
-
                         if to_apply is not None:
                             if coef_operator == 'pow':
                                 cfs **= to_apply
@@ -343,16 +345,18 @@ class DeepPINN(DeepEstimator):
                     cfs *= sign
                         
             elif isinstance(coef,(list,tuple)):
-                cfs = self._calc_eqn(X_r,coef)
+                cfs = self._calc_eqn(X,coef)
             else:
                 raise ValueError(f"Unknown coefficient type {type(coef)}")
 
-            if var == 'u':
+            if var in functions:
                 var_val = derivs[ind]
             elif var == 'const':
                 var_val = const
-            else:
+            elif var in variables:
                 var_val = var_to_val[var]
+            else:
+                raise ValueError(f"Unknown variable {var}")
 
             str_to_op = {
                 'identity':lambda x: x,
@@ -380,7 +384,7 @@ class DeepPINN(DeepEstimator):
 
         return result
 
-    def _calc_conds(self,X_b,ind):
+    def _calc_conds(self,X_b):
         '''
         Parameters
         ----------
@@ -392,13 +396,46 @@ class DeepPINN(DeepEstimator):
         
         ind : int
             The index at which to calculate the condition for.
-        '''
-        return self._calc_eqn(X_b[ind],
-                            get_any(self.conditions[ind],
-                                    ['eqn','equation']
-                                )
-                            )
 
+        Returns
+        -------
+        result : list
+            A list of tf.Tensors, each representing the result of a condition in the condition structure.
+
+            The nth element of the list corresponds to the nth condition in the condition structure.
+        '''
+        result = []
+        for i in range(len(X_b)):
+            result.append(self._calc_eqn(X_b[i],
+                                     get_any(self.conditions[i],
+                                             ['eqn','equation']
+                                         )
+                            ))
+        return result
+
+    def _calc_pde(self,X_r):
+        '''
+        Parameters
+        ----------
+        X_r : array-like
+            An array of shape (n_samples,n_vars)
+        
+        Returns
+        -------
+        result : list
+            A list of tf.Tensors, each representing the result of a PDE in the equation structure.
+
+            The nth element of the list corresponds to the nth PDE in the equation structure.
+        '''
+        eqn_structure = self.equation_structure
+        if all(isinstance(eqn,(list,tuple)) for eqn in eqn_structure):
+            result = []
+            for eqn in eqn_structure:
+                result.append(self._calc_eqn(X_r,eqn))
+        else:
+            result = [self._calc_eqn(X_r,eqn_structure)]
+
+        return result
 
     ### PREPARATION BEFORE FITTING ###
     
@@ -463,6 +500,10 @@ class DeepPINN(DeepEstimator):
 
         if isinstance(self.equation_structure,str):
             self.equation_structure = parse_eqn(self.equation_structure)
+
+        for ind,eqn in enumerate(self.equation_structure):
+            if isinstance(eqn,str):
+                self.equation_structure[ind] = parse_eqn(eqn)
 
         for ind,cond in enumerate(self.conditions):
             eqn = get_any(cond,
@@ -577,7 +618,7 @@ class DeepPINN(DeepEstimator):
                            mins=self.mins,
                            maxs=self.maxs,
                            model=self._build_model(structs),
-                           calc_eqn=self._calc_eqn,
+                           calc_pde=self._calc_pde,
                            calc_bound_eqn=self._calc_conds,
                            constants=self.constants_,
                            data=self.data,
@@ -585,6 +626,14 @@ class DeepPINN(DeepEstimator):
         self.model_.compile(
             optimizer=self._make_optimizer()
         )
+
+        if len(self.output_shape_) >= 2:
+            raise ValueError(f"Output shape must be 1D. Output shape given: {self.output_shape_}")
+        
+        if self.output_shape_[0] != len(self.functions):
+            raise ValueError(f"Output shape must be equal to the number of functions. "
+                             f"Output shape given: {self.output_shape_}, "
+                             f"number of functions given: {len(self.functions)}")
 
         X = self._validate_data(X)
 
@@ -656,14 +705,15 @@ class DeepPINN(DeepEstimator):
         Returns
         -------
         score : np.float32
-            The negative mean of the equation residual.
+            The negative loss
         '''
         self._check_is_fitted()
         X_r = self.X_r if X is None else X
-        return compute_score(None,self._calc_eqn(X_r),
-                        scoring_func=self.scoring_func,
-                        weights=self.scoring_weights,
-                        must_be_vector=self.must_be_vector)
+        return compute_score(None,
+                             self.model_.get_loss(X_r).numpy(),
+                             self.scoring_func,
+                             weights=self.scoring_weights,
+                             must_be_vector=self.must_be_vector)
 
 
     ### CUSTOM METHODS ###
