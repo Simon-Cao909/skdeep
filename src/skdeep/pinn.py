@@ -27,6 +27,7 @@ class DeepPINN(DeepEstimator):
                  n_samples,
                  constants=None,
                  data=None,
+                 functions=None,
                  loss_weighting=None,
                  **kwargs):
         '''
@@ -34,6 +35,8 @@ class DeepPINN(DeepEstimator):
         ----------
         variables : list or tuple
             A list of variables.
+            
+            Each can only be one character.
             
             Ex. ``['x','y','z']``
         
@@ -83,6 +86,17 @@ class DeepPINN(DeepEstimator):
 
             Currently, this must be float32.
         
+        functions : list or None, default=None
+            A list of function names to be used in the equation.
+
+            Each can only be one character.
+
+            Ex. ``['u','v','w']``
+
+            If None, only the default function 'u' will be used.
+
+            Must be specified for vector-valued outputs or coupled equations.
+
         loss_weighting : dict or None, default=None
             The weighting for each loss.
             
@@ -110,6 +124,7 @@ class DeepPINN(DeepEstimator):
         self.n_samples = n_samples
         self.constants = constants
         self.data = data
+        self.functions = functions
         self.loss_weighting = loss_weighting
 
     def _validate_hyperparams(self):
@@ -201,7 +216,9 @@ class DeepPINN(DeepEstimator):
             X_r = tf.convert_to_tensor(X_r, dtype=tf.float32)
 
         variables = self.variables
+        functions = self.functions
         var_to_val = {}
+        func_to_val = {}
         derivs = {}
 
         with tf.GradientTape(persistent=True) as tape:
@@ -209,16 +226,20 @@ class DeepPINN(DeepEstimator):
                 var_to_val[v] = X_r[:,ind:ind+1]
                 tape.watch(var_to_val[v])
 
-            u = self.model_(ko.stack([val[:,0] for val in var_to_val.values()],axis=1))
+            eval = self.model_(ko.stack([val[:,0] for val in var_to_val.values()],axis=1))
+            for ind,f in enumerate(functions):
+                func_to_val[f] = eval[:,ind:ind+1]
 
             for ind, struct in enumerate(structure):
                 derivs[ind] = u
 
-                var = get_any(struct,['variable','var'],fallback='u')
+                var = get_any(struct,['variable','var'],fallback=functions[0])
                 derivatives = get_any(struct,['derivatives','deriv'],fallback=[])
 
+                derivs[ind] = func_to_val[var]
+
                 if var != 'u' and len(derivatives) != 0:
-                        raise ValueError("Derivatives can only operate on u")
+                    raise ValueError("Derivatives can only operate on u")
                 
                 for i,d in enumerate(derivatives[:-1]):
                     i += 1
@@ -246,7 +267,7 @@ class DeepPINN(DeepEstimator):
 
         for ind,struct in enumerate(structure):
 
-            var = get_any(struct,['variable','var'],fallback='u')
+            var = get_any(struct,['variable','var'],fallback=functions[0])
             derivatives = get_any(struct,['derivatives','deriv'],fallback=[])
             coef = get_any(struct,['coefficient','coef'],fallback=1)
             operator = get_any(struct,['op','operator'],fallback=lambda x: x)
@@ -426,6 +447,9 @@ class DeepPINN(DeepEstimator):
         '''
         Prepares the hyperparameters before training
         '''
+        if self.functions is None:
+            self.functions = ['u']
+
         if self.constants is None:
             self.constants = []
 
