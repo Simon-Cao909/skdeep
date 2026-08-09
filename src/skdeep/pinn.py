@@ -13,6 +13,8 @@ from .tools.score import compute_score
 from .tools.validation import validate_structure
 from .tools.building.struct_tools import get_any
 from .tools.building.quick_parser import parse_eqn
+from .tools.equation.deriv import find_deriv,is_special_deriv
+from .tools.equation.coeff import parse_scalar_coef,parse_vector_coef
 
 class DeepPINN(DeepEstimator):
 
@@ -151,6 +153,8 @@ class DeepPINN(DeepEstimator):
             If constants is not a list or tuple.
 
             If loss_weighting is not a dictionary.
+
+            If any constant name is not a string
         
         ValueError
             If model structure is empty.
@@ -164,6 +168,12 @@ class DeepPINN(DeepEstimator):
             If validation split is not in [0,1). 
 
             If early stopping is True and validation split <= 0.
+
+            If any constant uses only numeric characters in the name.
+
+            If the length of any constant name is greater than 1.
+
+            If any banned name is used in a constant's name, variable's name, or function's name
         
         KeyError
             If any element in model structure does not have key 'type'.
@@ -175,6 +185,15 @@ class DeepPINN(DeepEstimator):
         validate_structure(self.equation_structure,"equation_structure",build_setting="not normal")
         validate_structure(self.conditions,"conditions",can_be_empty=True)
         validate_structure(self.constants,"constants",can_be_empty=True)
+
+        if any(not isinstance(name,str) for name in self.constants_):
+            raise TypeError("All constant names must be strings")
+
+        if any(name.isnumeric() for name in self.constants_):
+            raise ValueError("Constant names cannot be numbers!")
+
+        if any(len(name) != 1 for name in self.constants_):
+            raise ValueError("Constant names can only be one character long!")
 
         if any(isinstance(eqn,(list,tuple)) for eqn in self.equation_structure) and \
            any(not isinstance(eqn,(list,tuple)) for eqn in self.equation_structure):
@@ -194,6 +213,20 @@ class DeepPINN(DeepEstimator):
 
         if 'pde' not in self.loss_weighting or 'conditions' not in self.loss_weighting or ('data' not in self.loss_weighting and self.data is not None):
             raise KeyError("loss_weighting must have keys 'pde', 'conditions', and 'data' (if data was given)")
+
+        banned_names = ['(',')',';',',','\\','.','?','!','#','@',
+                        '$','%','^','&','*','-','=','+','/','[',']'
+                        '>','<','{','}']
+        
+        for bn in banned_names:
+            if any(bn in name for name in self.constants_):
+                raise ValueError(f"{bn} cannot be used in a constant's name")
+
+            if any(bn in name for name in self.variables):
+                raise ValueError(f"{bn} cannot be used in a variable's name")
+
+            if any(bn in name for name in self.functions):
+                raise ValueError(f"{bn} cannot be used in a function's name")
 
     ### CALCULATING EQUATIONS AND CONDITIONS ###
 
@@ -227,132 +260,77 @@ class DeepPINN(DeepEstimator):
         with tf.GradientTape(persistent=True) as tape:
             for ind,v in enumerate(variables):
                 var_to_val[v] = X[:,ind:ind+1]
+
+                if var_to_val[v].shape[1] == 0:
+                    raise ValueError(f"X is not of the right shape. Expected shape: (n_samples,{len(variables)}). "
+                                     f"Given shape: {X.shape}")
+                
                 tape.watch(var_to_val[v])
 
+            ### For each function, eval is of shape (n_samples,n_outputs)
             eval = self.model_(ko.stack([val[:,0] for val in var_to_val.values()],axis=1))
+
             for ind,f in enumerate(functions):
-                func_to_val[f] = eval[:,ind:ind+1]
+
+                # If there is no multi-headed output, then ev is just eval
+                if not self.is_multi_output_:
+                    ev = eval
+
+                # If there is multi-headed output, then eval is a list
+                else:
+                    ev = eval[ind]
+
+                # If the current function is vector valued, we need to assign fi to ev[:,i-1:i]
+                # i = 1,2,3... is numbering
+                if ev.shape[1] >= 2:
+                    for i in range(1,ev.shape[1]+1):
+                        func_to_val[f"{f}{i}"] = ev[:,i-1:i]
+
+                    func_to_val[f] = ev
+
+                # If the current function is scalar valued, we can just assign f to ev
+                else:
+                    func_to_val[f] = ev
 
             for ind, struct in enumerate(structure):
                 var = get_any(struct,['variable','var'],fallback=functions[0])
                 derivatives = get_any(struct,['derivatives','deriv'],fallback=[])
 
-                if var not in functions:
+                if var[0] not in functions:
                     if len(derivatives) != 0:
                         raise ValueError("Derivatives can only operate on functions")
                     continue
 
-                derivs[ind] = func_to_val[var]
-                
-                for i,d in enumerate(derivatives[:-1]):
-                    i += 1
-    
-                    val = var_to_val.get(d)
+                derivs[ind] = func_to_val.get(var)
+                if derivs[ind] is None:
+                    raise ValueError(f"{var} is not a function in the given functions")
 
-                    if val is None:
-                        raise ValueError(f"Derivative {d} is not a variable in the given variables")
-                    
-                    grad = tape.gradient(derivs[ind],val)
-    
-                    if i % 10 == 1 and i % 100 != 11:
-                        i = f"{i}st"
-                    elif i % 10 == 2 and i % 100 != 12:
-                        i = f"{i}nd"
-                    elif i % 10 == 3 and i % 100 != 13:
-                        i = f"{i}rd"
-                    else:
-                        i = f"{i}th"
-    
-                    if grad is None:
-                        raise RuntimeError(f"Could not compute {i} derivative with respect to {d}")
-                    
-                    derivs[ind] = grad
-
-        const = ko.ones_like(X[:,0:1])
+                for i,d in enumerate(derivatives):
+                    find_deriv(i,d,var_to_val,tape,variables,derivs,ind)
 
         result = 0
 
         for ind,struct in enumerate(structure):
 
             var = get_any(struct,['variable','var'],fallback=functions[0])
-            derivatives = get_any(struct,['derivatives','deriv'],fallback=[])
             coef = get_any(struct,['coefficient','coef'],fallback=1)
             operator = get_any(struct,['op','operator'],fallback=lambda x: x)
-
-            if len(derivatives) != 0:
-                if var not in functions:
-                    raise ValueError("Derivatives can only operate on functions")
-                
-                d = derivatives[-1]
-                grad = tape.gradient(derivs[ind],var_to_val[d])
-
-                if grad is None:
-                    raise RuntimeError(f"Could not compute last derivative with respect to {d}")
-
-                derivs[ind] = grad
+            apply_when = get_any(struct,['apply_coef','apply_coefficient'],fallback='after')
 
             if isinstance(coef,Number):
                 cfs = coef
             elif isinstance(coef,str):
-                if coef.isnumeric():
-                    cfs = int(coef)
-                else:
-                    if coef.startswith("-"):
-                        sign = -1
-                        coef = coef[1:]
-                    else:
-                        sign = 1
-
-                    cfs = 1
-                    coef_operator = 'mult'
-                    for char in coef:
-                        to_apply = None
-                        op_change = False
-
-                        if char in functions:
-                            to_apply = func_to_val[char]
-                        elif char in variables:
-                            to_apply = var_to_val[char]
-                        elif char in self.constants_:
-                            to_apply = self.constants_[char]
-                        elif char.isnumeric():
-                            to_apply = int(char)
-                        elif char == 'π':
-                            to_apply = np.pi
-                        elif char == 'e':
-                            to_apply = np.e
-
-                        elif char == '^':
-                            coef_operator = 'pow'
-                            op_change = True
-                        elif char == '/':
-                            coef_operator = 'div'
-                            op_change = True
-                        elif char == ' ':
-                            coef_operator = 'mult'
-                            op_change = True
-
-                        if to_apply is not None:
-                            if coef_operator == 'pow':
-                                cfs **= to_apply
-                            elif coef_operator == 'div':
-                                cfs /= to_apply
-                            elif coef_operator == 'mult':
-                                cfs *= to_apply
-                        elif not op_change:
-                            raise ValueError(f"Unknown character in coefficient: {char}")
-
-                    cfs *= sign
-                        
+                parser = parse_vector_coef if ',' in coef else parse_scalar_coef
+                cfs = parser(coef,var_to_val,func_to_val,self.constants_)
             elif isinstance(coef,(list,tuple)):
                 cfs = self._calc_eqn(X,coef)
             else:
                 raise ValueError(f"Unknown coefficient type {type(coef)}")
 
-            if var in functions:
+            if var[0] in functions:
                 var_val = derivs[ind]
             elif var == 'const':
-                var_val = const
+                var_val = ko.ones_like(result)
             elif var in variables:
                 var_val = var_to_val[var]
             else:
@@ -378,7 +356,20 @@ class DeepPINN(DeepEstimator):
                 name = operator
                 operator = lambda var: str_to_op[name](var)
 
-            result += operator(var_val)*cfs
+            if tf.is_tensor(result):
+                if result.shape != var_val.shape:
+                    raise ValueError(f"All terms in the equation must have the same shape. "
+                                     f"Shape of result: {result.shape}. "
+                                     f"Shape of term {ind}: {var_val.shape}")
+
+            if apply_when.lower() == 'before':
+                res = operator(cfs*var_val)
+            elif apply_when.lower() == 'after':
+                res = operator(var_val)*cfs
+            else:
+                raise ValueError("apply_when must either be 'before' or 'after'")
+            
+            result += res
 
         del tape
 
@@ -514,6 +505,25 @@ class DeepPINN(DeepEstimator):
             if isinstance(eqn,str):
                 cond['eqn'] = parse_eqn(eqn)
 
+        self.constants_ = {}
+
+        for ind,c in enumerate(self.constants):
+            name = get_any(c,['name'],err=f"No name given for constant {ind}")
+
+            if not isinstance(name,str):
+                raise ValueError(f"Name for constant {ind} must be a string. Type of name given: {type(name)}")
+            if len(name) != 1:
+                raise ValueError(f"Name for constant {ind} must be single character. Name given: {name}")
+
+            if name in self.variables:
+                raise ValueError(f"Name for constant {name} is also the name of a variable.")
+
+            value = get_any(c,['val','value'],err=f"No value given for constant {ind}")
+            trainable = get_any(c,['trainable','train'],False)
+            dtype = get_any(c,['dtype','type'],'float32')
+
+            self.constants_[name] = keras.Variable(value,dtype=dtype,trainable=trainable)
+
     def _prepare_data(self):
         '''
         Prepares the data for training
@@ -548,27 +558,6 @@ class DeepPINN(DeepEstimator):
         self.X_r = X_r
         self.X_b_data = X_b_data
 
-    def _prepare_constants(self):
-        self.constants_ = {}
-
-        for ind,c in enumerate(self.constants):
-            name = get_any(c,['name'],err=f"No name given for constant {ind}")
-
-            if not isinstance(name,str):
-                raise ValueError(f"Name for constant {ind} must be a string. Type of name given: {type(name)}")
-            if len(name) != 1:
-                raise ValueError(f"Name for constant {ind} must be single character. Name given: {name}")
-
-            if name in self.variables:
-                raise ValueError(f"Name for constant {name} is also the name of a variable.")
-
-            value = get_any(c,['val','value'],err=f"No value given for constant {ind}")
-            trainable = get_any(c,['trainable','train'],False)
-            dtype = get_any(c,['dtype','type'],'float32')
-
-            self.constants_[name] = keras.Variable(value,dtype=dtype,trainable=trainable)
-
-
     ### SKLEARN METHODS ###
 
     def fit(self,X=None,y=None,**fit_params):
@@ -596,11 +585,10 @@ class DeepPINN(DeepEstimator):
             The trained estimator.
         '''
         self._prepare_hyperparams()
-        self._prepare_constants()
         self._prepare_data()
 
         self.y_was_1d_ = False
-        self.is_multi_input_ = self.is_multi_output_ = False
+        self.is_multi_input_ = False
 
         X = self.X_r if X is None else X
 
@@ -627,13 +615,17 @@ class DeepPINN(DeepEstimator):
             optimizer=self._make_optimizer()
         )
 
-        if len(self.output_shape_) >= 2:
-            raise ValueError(f"Output shape must be 1D. Output shape given: {self.output_shape_}")
-        
-        if self.output_shape_[0] != len(self.functions):
-            raise ValueError(f"Output shape must be equal to the number of functions. "
-                             f"Output shape given: {self.output_shape_}, "
-                             f"number of functions given: {len(self.functions)}")
+        if len(self.functions) != 1:
+            if not self.is_multi_output_:
+                raise ValueError(f"Multi-headed output needed for multiple functions.")
+
+            if len(self.functions) != len(self.output_shape_):
+                raise ValueError(f"Number of functions must be equal to number of output heads. "
+                                 f"Functions given: {len(self.functions)}. "
+                                 f"Output heads given: {len(self.output_shape_)}")
+        else:
+            if self.is_multi_output_:
+                raise ValueError(f"Multi-headed output not needed for single function.")
 
         X = self._validate_data(X)
 
@@ -649,10 +641,12 @@ class DeepPINN(DeepEstimator):
                     **fit_params,
                 )
 
+        self.y_was_1d_ = [False]*len(self.output_shape_) if self.is_multi_output_ else False
+
         self.history_ = history.history
         self.loss_curve_ = history.history.get("loss")
         self.validation_scores_ = history.history.get("val_loss")
-
+        
         return self
 
     def predict(self,X=None):
@@ -671,7 +665,7 @@ class DeepPINN(DeepEstimator):
         y : numpy.ndarray
             The function evaluated at every point.
             
-            Shape is ``(n_samples,n_outputs)``.
+            Shape is ``(n_samples,n_outputs)`` for single function or a list of arrays for multiple functions.
         
         Raises
         ------
@@ -741,7 +735,7 @@ class DeepPINN(DeepEstimator):
         pred : numpy.ndarray
             The function evaluated at every point.
 
-            Shape is ``(n_samples,n_outputs)``
+            Shape is ``(n_samples,n_outputs)`` for single function or a list of arrays for multiple functions.
         '''
         self._check_is_fitted()
         return self.predict(self._get_data(loc,n_samples,self.mins,self.maxs,label="Running Predict_at_loc: "))
@@ -749,6 +743,7 @@ class DeepPINN(DeepEstimator):
     def plot(self,
              loc,
              n_samples=50,
+             function=None,
              draw=True,
              ax=None):
         '''
@@ -776,6 +771,9 @@ class DeepPINN(DeepEstimator):
         n_samples : int, default=50
             The number of samples to draw uniformly between the bounds for the unfixed variables.
         
+        function : str or None, default=None
+            The function to plot.
+        
         draw : bool, default=True
             If True, will call plt.show()
         
@@ -795,6 +793,16 @@ class DeepPINN(DeepEstimator):
         X = self._get_data(loc,n_samples,self.mins,self.maxs)
         pred = self.predict(X)
 
+        f_ind = self.functions.index(function) if function is not None else 0
+        f_label = function if function is not None else self.functions[0]
+
+        if isinstance(pred,(list,tuple)):
+            pred = pred[f_ind]
+
+        if pred.shape[1] > 1:
+            raise ValueError(f"Cannot plot vector-valued function. "
+                             f"Function {self.functions[f_ind]} has {pred.shape[1]} outputs.")
+
         free_vars = [(i,v) for i,v in enumerate(self.variables) if v not in loc]
 
         if ax is None:
@@ -808,13 +816,13 @@ class DeepPINN(DeepEstimator):
             order = np.argsort(x)
             ax.plot(x[order],y[order])
             ax.set_xlabel(free_var)
-            ax.set_ylabel("u")
+            ax.set_ylabel(f_label)
 
         elif len(free_vars) == 2:
             x = X[:,free_vars[0][0]]
             y = X[:,free_vars[1][0]]
 
-            ax.scatter(x,y,c=pred[:,0],label='u')
+            ax.scatter(x,y,c=pred[:,0],label=f_label)
             ax.set_xlabel(free_vars[0][1])
             ax.set_ylabel(free_vars[1][1])
             ax.legend()

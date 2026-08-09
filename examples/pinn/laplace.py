@@ -195,7 +195,7 @@ print(
 # PDE residual
 # ----------------------------------
 
-residual = pinn._calc_eqn(
+residual = pinn._calc_pde(
     tf.constant(points,dtype=tf.float32)
 )
 

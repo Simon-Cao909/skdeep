@@ -157,7 +157,7 @@ plt.close()
 # Check PDE residual
 # ----------------------------------
 
-residual = pinn._calc_eqn(
+residual = pinn._calc_pde(
     tf.constant(
         x,
         dtype=tf.float32

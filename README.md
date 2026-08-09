@@ -14,6 +14,7 @@ Embed pre-trained scikit-learn regressors into neural networks
 Standard and variational autoencoders
 
 Physics Informed Neural Networks (PINN) and Inverse PINNs
+- Supports vector calculus (Maxwell's equations, Laplace equation, Navier-Stokes, etc.)
 
 scikit-learn BaseEstimator compatibility
 

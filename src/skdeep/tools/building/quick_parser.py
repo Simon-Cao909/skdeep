@@ -226,3 +226,5 @@ def parse_eqn(eqn):
         })
 
     return structure
+
+print(parse_eqn("([u,xt])sin(F_xyz)"))

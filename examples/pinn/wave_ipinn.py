@@ -76,5 +76,5 @@ model = DeepPINN(variables=variables,
                     loss_weighting={'pde':1,'conditions':10,'data':100})
 
 model.fit()
-print(model.equation_structure)
+
 print(model.constants_) # 1.98 Pretty good!
