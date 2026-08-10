@@ -31,12 +31,15 @@ def find_deriv(i,d,var_to_val,tape,variables,derivs,ind):
         
         res += grad
     elif is_special_deriv(d):
-        # When it uses nabla, needs to be of form ∇(var1,var2,...)
-        lbrack = d.find('(')
-        rbrack = d.find(')')
+        # When it uses nabla, needs to be of form ∇[var1,var2,...]
+        lbrack = d.find('[')
+        rbrack = d.find(']')
 
         if lbrack == -1 or rbrack == -1:
-            raise ValueError("Brackets specifying the variables need to be given when applying ∇")
+            lbrack = d.find('(')
+            rbrack = d.find(')')
+            if lbrack == -1 or rbrack == -1:
+                raise ValueError("Brackets specifying the variables need to be given when applying ∇")
         
         vs = d[lbrack+1:rbrack].split(',')
         vs = sorted(vs,key=variables.index)

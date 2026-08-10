@@ -171,10 +171,41 @@ def split_terms(eqn):
     parts.append(eqn[start:])
     return parts
 
+def find_one(string,lt):
+    for el in lt:
+        find = string.find(el)
+        if find != -1:
+            return find
+
+    return -1
+        
+
 def parse_eqn(eqn):
     eqn = eqn.replace(" ","")
+    sides = eqn.split("=")
 
-    parts = split_terms(eqn)
+    if len(sides) == 1:
+        parts = split_terms(eqn)
+    elif len(sides) == 2:
+        lhs,rhs = sides
+        l_parts = split_terms(lhs)
+        r_parts = split_terms(rhs)
+
+        if rhs == '0':
+            parts = l_parts
+        else:
+            for p in r_parts:
+                if p[0] == '-':
+                    l_parts.append(p.lstrip('-'))
+                elif p[0] == '+':
+                    l_parts.append('-'+p.lstrip('+'))
+                else:
+                    l_parts.append('-'+p)
+
+            parts = l_parts
+    else:
+        raise ValueError("More than one '=' used in equation")
+    
     parts = [p.strip("+") for p in parts]
 
     structure = []
@@ -213,11 +244,18 @@ def parse_eqn(eqn):
 
         focus = focus.split("_")
         var = focus[0]
+        derivs = []
+
+        nabla_i = var.find('∇')
+        if nabla_i != -1:
+            end_sym = find_one(var,['⋅','●','×','x',']'])
+            derivs.append(var[nabla_i:end_sym+1])
+            var = var[end_sym+1:]
 
         if len(focus) == 1:
             focus.append("")
 
-        derivs = list(focus[1])
+        derivs += list(focus[1])
         structure.append({
             'var':var,
             'deriv':derivs,
@@ -226,5 +264,3 @@ def parse_eqn(eqn):
         })
 
     return structure
-
-print(parse_eqn("([u,xt])sin(F_xyz)"))

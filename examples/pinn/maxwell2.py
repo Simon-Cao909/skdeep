@@ -19,47 +19,10 @@ constants = [
 ]
 
 equation_structure = [
-
-    # ∇ · E = 0
-    [
-        {
-            "var": "E",
-            "derivatives": ["∇(x,y,z)⋅"]
-        }
-    ],
-
-    # ∇ · B = 0
-    [
-        {
-            "var": "B",
-            "derivatives": ["∇(x,y,z)⋅"]
-        }
-    ],
-
-    # ∇ × E + ∂B/∂t = 0
-    [
-        {
-            "var": "E",
-            "derivatives": ["∇(x,y,z)x"]
-        },
-        {
-            "var": "B",
-            "derivatives": ["t"]
-        }
-    ],
-
-    # ∇ × B - ∂E/∂t = 0
-    [
-        {
-            "var": "B",
-            "derivatives": ["∇(x,y,z)x"]
-        },
-        {
-            "var": "E",
-            "derivatives": ["t"],
-            "coef": -1
-        }
-    ]
+    "∇[x,y,z]⋅E = 0",
+    "∇[x,y,z]⋅B = 0",
+    "∇[x,y,z]×E = -B_t",
+    "∇[x,y,z]×B = E_t",
 ]
 
 conditions = [
@@ -68,80 +31,42 @@ conditions = [
     {
         "location": {"t": 0},
         "n_samples": 200,
-        "equation": [
-            {
-                "var": "E1",
-                "coef": 1
-            },
-            {
-                "var": "y",
-                "op": lambda y: -ko.sin(y)
-            }
-        ]
+        "equation": "E1 - ()sin(y) = 0"
     },
 
     # E2(x,y,z,0) = 0
     {
         "location": {"t": 0},
         "n_samples": 200,
-        "equation": [
-            {
-                "var": "E2",
-                "coef": 1
-            }
-        ]
+        "equation": "E2 = 0"
     },
 
     # E3(x,y,z,0) = 0
     {
         "location": {"t": 0},
         "n_samples": 200,
-        "equation": [
-            {
-                "var": "E3",
-                "coef": 1
-            }
-        ]
+        "equation": "E3 = 0"
     },
 
     # B1(x,y,z,0) = 0
     {
         "location": {"t": 0},
         "n_samples": 200,
-        "equation": [
-            {
-                "var": "B1",
-                "coef": 1
-            }
-        ]
+        "equation": "B1 = 0"
     },
 
     # B2(x,y,z,0) = 0
     {
         "location": {"t": 0},
         "n_samples": 200,
-        "equation": [
-            {
-                "var": "B2",
-                "coef": 1
-            }
-        ]
+        "equation": "B2 = 0"
     },
 
     # B3(x,y,z,0) = -sin(y)
     {
         "location": {"t": 0},
         "n_samples": 200,
-        "equation": [
-            {
-                "var": "B3",
-                "coef": 1
-            },
-            {
-                "var": "y",
-                "op": lambda y: ko.sin(y)
-            }
-        ]
+        "equation": "B3 = -()sin(y)"
     }
 ]
 
