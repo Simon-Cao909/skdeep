@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "skdeep"
-version = "1.7.8"
+version = "1.7.9"
 authors = [
     { name="Simon W. Cao", email="simon.cao909@gmail.com" },
 ]

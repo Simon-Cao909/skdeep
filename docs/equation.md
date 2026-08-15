@@ -14,7 +14,7 @@ Each dictionary in this list can have keys and values:
     - This variable can either be in self.variables or it can be in self.functions, where the focus will be the function. It can also be 'const', where then 1 will be the focus (or (1,1,...) for vector equations)
         - For vector-valued functions, you can use fi as the variable name, where f is the name of the function and i corresponds to the ith element in the vector. This numbering starts at 1 (as opposed to 0)
     - If this key is not included, the default variable will be self.functions[0]
-    - Ex. {'variable':'x',...}, {'variable':'u1',...}
+    - Ex. ``{'variable':'x',...}``, ``{'variable':'u1',...}``
 - KEY: 'derivatives' or 'deriv' (opt | default=[])
     - The value should be a list containing variables or a "special string" (see *)
     - This list will be iterated over, applying each derivative inside
@@ -28,10 +28,11 @@ Each dictionary in this list can have keys and values:
                 - The gradient will be taken. This only works if the focus is a scalar function
             - var1, var2, ... are variables that the operator will be taken with respect to
             - Alternatively, you can use () to enclose the variables
+            - You can specify the coordinate system using the ``coordinates`` argument during initialization
     - This should only be included if the value associated with 'variable' was a function or is of the form fi, where f is the name of a vector-valued function and i is its ith component
         - If the list has a nonzero length when the variable was not a function, an error will be raised
     - If this key is not included, the default will be [], meaning no derivatives will be taken
-    - Ex. {'derivatives':['x','x','t'],...}, {'derivatives':['t','∇(x,y,z)⋅'],...}
+    - Ex. ``{'derivatives':['x','x','t'],...}``, ``{'derivatives':['t','∇(x,y,z)⋅'],...}``
 - KEY: 'coefficient' or 'coef' (opt | default=1)
     - The value should either be a number, string, or of the form equation_structure
         - Note that this currently does not support the equation string parsing you see below.
@@ -65,7 +66,7 @@ Each dictionary in this list can have keys and values:
             - The string can also contain things to the left or right of the brackets, which will be multiplied element-wise into the string
     - If it was given of the form equation_structure, then the coefficient will be the given equation
     - If this key is not included, the default will be 1
-    - Ex. {'coef':'2π',...}, {'coef':np.pi,...}, {'coef':'2xtu^2',...}, {'coef':'3(xt^2,u)'}, or:
+    - Ex. ``{'coef':'2π',...}``, ``{'coef':np.pi,...}``, ``{'coef':'2xtu^2',...}``, ``{'coef':'3(xt^2,u)'}``, or:
     ```python
     {
         ### Coefficient is sin(x) + cos(y)
@@ -88,7 +89,7 @@ Each dictionary in this list can have keys and values:
         - Where that operator will then be acting on the focus
         - If the focus is a vector-valued function, the operator will be applied to every component
     - If this key is not included, the default will be the identity function (lambda x: x)
-    - Ex. {'operator': lambda y: ko.sin(np.pi*y)}
+    - Ex. ``{'operator': lambda y: ko.sin(np.pi*y)}``
 - KEY: 'apply_coef' or 'apply_coefficient' (opt | default='after')
     - The value should be a string
     - If 'before', the coefficient will be applied before the operator

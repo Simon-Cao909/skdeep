@@ -278,5 +278,6 @@ fig.colorbar(im2, ax=axes[2])
 
 
 plt.show()
+plt.close()
 
-pinn.plot(loc={"x":0},n_samples=1000)
+pinn.plot(loc={},n_samples=1000,use_heatmap=False)

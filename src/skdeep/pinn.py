@@ -5,6 +5,7 @@ import tensorflow.keras.ops as ko
 import numpy as np
 from numbers import Number
 import matplotlib.pyplot as plt
+from matplotlib.axes import Axes
 
 from .estimator import DeepEstimator
 
@@ -13,7 +14,7 @@ from .tools.score import compute_score
 from .tools.validation import validate_structure
 from .tools.building.struct_tools import get_any
 from .tools.building.quick_parser import parse_eqn
-from .tools.equation.deriv import find_deriv,is_special_deriv
+from .tools.equation.deriv import find_deriv
 from .tools.equation.coeff import parse_scalar_coef,parse_vector_coef
 
 class DeepPINN(DeepEstimator):
@@ -27,9 +28,10 @@ class DeepPINN(DeepEstimator):
                  conditions,
                  bounds,
                  n_samples,
+                 functions=None,
                  constants=None,
                  data=None,
-                 functions=None,
+                 coordinates='cartesian',
                  loss_weighting=None,
                  **kwargs):
         '''
@@ -68,6 +70,17 @@ class DeepPINN(DeepEstimator):
 
             Numbers will be uniformly sampled between the bounds for the variable.
         
+        functions : list or None, default=None
+            A list of function names to be used in the equation.
+
+            Each can only be one character.
+
+            Ex. ``['u','v','w']``
+
+            If None, only the default function 'u' will be used.
+
+            Must be specified for vector-valued outputs or coupled equations.
+        
         constants : list or tuple or None, default=None
             Similar to model_structure but specifies the constants in the equation.
 
@@ -88,16 +101,26 @@ class DeepPINN(DeepEstimator):
 
             Currently, this must be float32.
         
-        functions : list or None, default=None
-            A list of function names to be used in the equation.
+        coordinates : string, default='cartesian'
+            Specifies the coordinate system.
 
-            Each can only be one character.
+            Must be either 'cartesian', 'polar', 'cylindrical', or 'spherical'.
 
-            Ex. ``['u','v','w']``
+            The only thing this changes is the behavior of the multivariate derivatives.
 
-            If None, only the default function 'u' will be used.
+            The number of variables between the brackets ``[...]`` 
+            when applying the multivariate derivative must be:
 
-            Must be specified for vector-valued outputs or coupled equations.
+            2 when ``coordinates = 'polar'`` and be of the order ``[r,θ]``. 
+            The vector field to act on or is produced should be of order F_1 = F_r and F_2 = F_θ.
+
+            3 when ``coordinates = 'cylindrical'`` and be of the order ``[r,azimuth,z]``. 
+            The vector field to act on or is produced should be of order F_1 = F_r, F_2 = F_azimuth, and F_3 = F_z.
+
+            3 when ``coordinates = 'spherical'`` and be of the order ``[ρ,polar,azimuth]``. 
+            The vector field to act on or is produced should be of order F_1 = R_ρ, F_2 = F_polar, F_3 = F_azimuth.
+
+            Any amount when ``coordinates = 'cartesian'``.
 
         loss_weighting : dict or None, default=None
             The weighting for each loss.
@@ -124,9 +147,10 @@ class DeepPINN(DeepEstimator):
         self.conditions = conditions
         self.bounds = bounds
         self.n_samples = n_samples
+        self.functions = functions
         self.constants = constants
         self.data = data
-        self.functions = functions
+        self.coordinates = coordinates
         self.loss_weighting = loss_weighting
 
     def _validate_hyperparams(self):
@@ -215,8 +239,8 @@ class DeepPINN(DeepEstimator):
             raise KeyError("loss_weighting must have keys 'pde', 'conditions', and 'data' (if data was given)")
 
         banned_names = ['(',')',';',',','\\','.','?','!','#','@',
-                        '$','%','^','&','*','-','=','+','/','[',']'
-                        '>','<','{','}']
+                        '$','%','^','&','*','-','=','+','/','[',']',
+                        '>','<','{','}','_']
         
         for bn in banned_names:
             if any(bn in name for name in self.constants_):
@@ -306,7 +330,7 @@ class DeepPINN(DeepEstimator):
                     raise ValueError(f"{var} is not a function in the given functions")
 
                 for i,d in enumerate(derivatives):
-                    find_deriv(i,d,var_to_val,tape,variables,derivs,ind)
+                    find_deriv(i,d,var_to_val,tape,variables,derivs,ind,self.coordinates)
 
         result = 0
 
@@ -430,7 +454,7 @@ class DeepPINN(DeepEstimator):
 
     ### PREPARATION BEFORE FITTING ###
     
-    def _get_data(self,loc,n_samples,mins,maxs,label=None):
+    def _get_data(self,loc,n_samples,mins,maxs,label=None,random=True,concat=True):
         '''
         Gets the data for a given location, n_samples, min, max
 
@@ -449,11 +473,19 @@ class DeepPINN(DeepEstimator):
             Maximums of variables.
 
         label : anything
-            The label before the error.
+            The label used in the error.
         
+        random : bool, default=True
+            If True: samples randomly.
+
+            If False: samples using fixed intervals.
+        
+        concat : bool, default=True
+            Whether to concatenate the data before returning
+
         Returns
         -------
-        data : tf.Tensor
+        data : tf.Tensor or List[tf.Tensor]
         '''
         variables = self.variables
 
@@ -464,12 +496,18 @@ class DeepPINN(DeepEstimator):
             if not (self.bounds[var][0] <= loc[var] <= self.bounds[var][1]):
                 raise ValueError(f"{label}location for {var} must be between the bounds!")
 
-        return (ko.concatenate(
-                            [ko.ones((n_samples,1))*loc[var] if v in loc
-                            else kr.uniform((n_samples,1),mins[i],maxs[i])
-                            for i,v in enumerate(self.variables)],
-                            axis=1
-        ))
+        if random:
+            data = [ko.ones((n_samples,1))*loc[var] if v in loc
+                    else kr.uniform((n_samples,1),mins[i],maxs[i])
+                    for i,v in enumerate(self.variables)]
+        else:
+            data = [np.ones((n_samples,1))*loc[var] if v in loc
+                    else np.linspace(mins[i],maxs[i],n_samples)
+                    for i,v in enumerate(self.variables)]
+
+        if concat: data = ko.concatenate(data,axis=1)
+
+        return data
 
     def _prepare_hyperparams(self):
         '''
@@ -712,7 +750,9 @@ class DeepPINN(DeepEstimator):
 
     ### CUSTOM METHODS ###
 
-    def predict_at_loc(self,loc,n_samples=50):
+    def predict_at_loc(self,
+                       loc: dict,
+                       n_samples: int = 50):
         '''
         Predicts the value of the function at a given location.
 
@@ -741,17 +781,19 @@ class DeepPINN(DeepEstimator):
         return self.predict(self._get_data(loc,n_samples,self.mins,self.maxs,label="Running Predict_at_loc: "))
 
     def plot(self,
-             loc,
-             n_samples=50,
-             function=None,
-             draw=True,
-             ax=None):
+             loc: dict,
+             n_samples: int = 50,
+             function: str | None = None,
+             vec_el: int | tuple | None =None,
+             draw: bool = True,
+             ax: Axes | None = None,
+             use_heatmap: bool =True) -> Axes:
         '''
         Plots the function.
 
         For one free variable, generates a u vs. free_var plot.
 
-        For two free variables, generates a colored scatter plot.
+        For two free variables, generates a heatmap, surface, or vector field
 
         Cannot handle any other amount of free variables.
 
@@ -773,6 +815,18 @@ class DeepPINN(DeepEstimator):
         
         function : str or None, default=None
             The function to plot.
+            
+            If None, it will be ``self.functions[0]``.
+        
+        vec_el : int, tuple, or None, default=None
+            For vector valued functions, the element of the vector to plot. 
+            Counting from 1 (as opposed to 0).
+
+            If None, the vector field will be drawn.
+
+            If tuple, the corresponding components of the vector field will be drawn.
+
+            Leave this as None if you are plotting a scalar function.
         
         draw : bool, default=True
             If True, will call plt.show()
@@ -782,6 +836,11 @@ class DeepPINN(DeepEstimator):
 
             If None, one will be created.
         
+        use_heatmap : bool, default=True
+            Whether to plot a function from R^2 --> R using a heatmap.
+
+            If False, the function will be plotted as a surface.
+        
         Returns
         -------
         ax : matplotlib.axes.Axes
@@ -790,7 +849,27 @@ class DeepPINN(DeepEstimator):
         '''
         self._check_is_fitted()
 
-        X = self._get_data(loc,n_samples,self.mins,self.maxs)
+        data = self._get_data(loc,
+                              n_samples,
+                              self.mins,
+                              self.maxs,
+                              label="Plotting: ",
+                              random=False,
+                              concat=False)
+
+        free_vars = [(i,v) for i,v in enumerate(self.variables) if v not in loc]
+        free_data = [data[i] for i,_ in free_vars]
+        meshgrid = np.meshgrid(*free_data)
+
+        X = np.zeros((np.prod(meshgrid[0].shape), len(self.variables)))
+
+        for i, var in enumerate(self.variables):
+            if var in loc:
+                X[:, i] = loc[var]
+            else:
+                free_i = [j for j,(ind,_) in enumerate(free_vars) if ind == i][0]
+                X[:, i] = meshgrid[free_i].ravel()
+
         pred = self.predict(X)
 
         f_ind = self.functions.index(function) if function is not None else 0
@@ -800,35 +879,97 @@ class DeepPINN(DeepEstimator):
             pred = pred[f_ind]
 
         if pred.shape[1] > 1:
-            raise ValueError(f"Cannot plot vector-valued function. "
-                             f"Function {self.functions[f_ind]} has {pred.shape[1]} outputs.")
+            is_vec = True
+        elif vec_el is None:
+            vec_el = 1
+            is_vec = False
 
-        free_vars = [(i,v) for i,v in enumerate(self.variables) if v not in loc]
+        if isinstance(vec_el,tuple):
+            if len(vec_el) == 1:
+                vec_el = vec_el[0]
+            elif len(vec_el) > pred.shape[1]:
+                raise ValueError("Number of dimensions of vec_el is greater "
+                                 "than the number of dimensions of the vector field")
+            elif any(el > pred.shape[1] for el in vec_el):
+                raise ValueError("vec_el number out of range")
+            elif any(el == 0 for el in vec_el):
+                raise ValueError("Counting starts from 1!")
+        elif vec_el == 0:
+            raise ValueError("Counting starts from 1!")
 
         if ax is None:
-            _,ax = plt.subplots()
+            fig = plt.figure()
+            if (len(free_vars) == 2 and not use_heatmap) or len(free_vars) == 3:
+                proj = '3d'
+            else:
+                proj = 'rectilinear'
+            ax = fig.add_subplot(111,projection=proj)
 
         if len(free_vars) == 1:
-            free_ind,free_var = free_vars[0]
-            x = np.asarray(X[:,free_ind])
-            y = np.asarray(pred[:,0])
+            if is_vec and vec_el is None:
+                raise ValueError("Cannot plot vector field for one free variable.")
+            else:
+                free_ind,free_var = free_vars[0]
+                x = np.asarray(X[:,free_ind])
+                y = np.asarray(pred[:,vec_el-1])
 
-            order = np.argsort(x)
-            ax.plot(x[order],y[order])
-            ax.set_xlabel(free_var)
-            ax.set_ylabel(f_label)
-
+                order = np.argsort(x)
+                ax.plot(x[order],y[order],label=f_label)
+                ax.set_xlabel(free_var)
+                ax.set_ylabel(f_label)
         elif len(free_vars) == 2:
-            x = X[:,free_vars[0][0]]
-            y = X[:,free_vars[1][0]]
+            x_i, x_v = free_vars[0]
+            y_i, y_v = free_vars[1]
+            x_g, y_g = meshgrid
 
-            ax.scatter(x,y,c=pred[:,0],label=f_label)
-            ax.set_xlabel(free_vars[0][1])
-            ax.set_ylabel(free_vars[1][1])
-            ax.legend()
+            if is_vec and (vec_el is None or isinstance(vec_el,tuple)):
+                if vec_el is None:
+                    vec_el = (1,2)
 
+                if len(vec_el) != 2:
+                    raise ValueError(f"Cannot plot {len(vec_el)}-D vector field in 2-D space. "
+                                     "Vector field must be 2-D!")
+                
+                F1, F2 = pred[:,vec_el[0]-1],pred[:,vec_el[1]-1]
+                ax.quiver(x_g.ravel(),y_g.ravel(),F1,F2,color='black',label=f_label)
+            else:
+                z = pred[:,vec_el-1].reshape(x_g.shape)
+                if use_heatmap:
+                    ax.pcolormesh(x_g,y_g,z,shading='auto',label=f_label)
+                else:
+                    if ax.name != '3d':
+                        raise ValueError("axes given must be 3-D for plotting surfaces!")
+
+                    ax.plot_surface(x_g,y_g,z)
+
+            ax.set_xlabel(x_v)
+            ax.set_ylabel(y_v)
+        elif len(free_vars) == 3:
+            x_i, x_v = free_vars[0]
+            y_i, y_v = free_vars[1]
+            z_i, z_v = free_vars[2]
+            x_g, y_g, z_g = meshgrid
+
+            if is_vec and (vec_el is None or isinstance(vec_el,tuple)):
+                if vec_el is None:
+                    vec_el = (1,2,3)
+                
+                if len(vec_el) != 3:
+                    raise ValueError(f"Cannot plot {len(vec_el)}-D vector field in 3-D space. "
+                                     "Vector field must be 3-D!")
+
+                F1,F2,F3 = pred[:,vec_el[0]-1],pred[:,vec_el[1]-1],pred[:,vec_el[2]-1]
+                ax.quiver(x_g.ravel(),y_g.ravel(),z_g.ravel(),F1,F2,F3,color='black',label=f_label)
+            else:
+                raise ValueError("Unable to plot scalar function in 4-D!")
+
+            ax.set_xlabel(x_v)
+            ax.set_ylabel(y_v)
+            ax.set_zlabel(z_v)
         else:
             raise ValueError(f"Unable to plot {len(free_vars)} free variables")
+
+        ax.legend()
 
         if draw:
             plt.show()

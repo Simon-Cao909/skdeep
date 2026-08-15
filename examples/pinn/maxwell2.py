@@ -109,7 +109,7 @@ pinn = DeepPINN(
     },
     model_structure=model_structure,
     build_setting="quick",
-    epochs=200,
+    epochs=50,
     early_stopping=True,
     optimizer="adam"
 )
@@ -124,3 +124,5 @@ pred = pinn.predict(X)
 print("E: ", pred[0])
 print("B: ", pred[1])
 print("Score:", pinn.score())
+
+pinn.plot({'t':0.5,'z':1},n_samples=10,function='E',vec_el=(1,2))
