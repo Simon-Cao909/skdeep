@@ -1,6 +1,5 @@
 from skdeep import DeepPINN
 import numpy as np
-import tensorflow.keras.ops as ko
 
 variables = ["x", "y", "z", "t"]
 functions = ["E", "B"]

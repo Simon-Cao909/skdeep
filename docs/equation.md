@@ -21,13 +21,15 @@ Each dictionary in this list can have keys and values:
         - If the current element is a variable, a derivative will be taken with respect to that variable
         - \* If the current element is a special string, it can be either of the form:
             - ∇[var1,var2,...]⋅ or ∇[var1,var2,...]● or 'div[var1,var2,...]' or 'divergence[var1,var2,...]'
-                - The divergence will be taken. This only works if the focus is a vector valued functiSon
+                - The divergence will be taken. This only works if the focus is a vector valued functions
             - ∇[var1,var2,...]× or ∇[var1,var2,...]x or 'curl[var1,var2,...]' or 'cross[var1,var2,...]'
                 - The curl will be taken. This only works if the focus is a vector valued function
             - ∇[var1,var2,...] or 'grad[var1,var2,...]' or 'gradient[var1,var2,...]'
                 - The gradient will be taken. This only works if the focus is a scalar function
+            - Δ[var1,var2,...] or ∇^2[var1,var2,...] or 'laplacian[var1,var2,...]'
+                - The laplacian will be taken. This works on both scalar functions and vector functions
             - var1, var2, ... are variables that the operator will be taken with respect to
-            - Alternatively, you can use () to enclose the variables
+            - Alternatively, you can use () to enclose the variables, but do NOT do this if you are using the string parser!!!
             - You can specify the coordinate system using the ``coordinates`` argument during initialization
     - This should only be included if the value associated with 'variable' was a function or is of the form fi, where f is the name of a vector-valued function and i is its ith component
         - If the list has a nonzero length when the variable was not a function, an error will be raised
@@ -107,9 +109,9 @@ equation_structure can also be a string, where you get to write out the equation
     - Please use the square brackets '[' and ']' if you want to use vector coefficients
 - The focus of each term must be after the coefficient. This focus can only be of one variable, function, or component of a vector valued function fi
 - In the focus, single variable derivatives are indicated by the '_' symbol, where each character after that symbol will be a derivative
-- Derivatives involving '∇' need to use the exact symbols (so no 'div', 'curl', etc. but instead ∇[var1,var2,...]⋅ and ∇[var1,var2,...]×). They can simply be put before the variable
+- Derivatives involving '∇' or 'Δ' need to use the exact symbols (so no 'div', 'curl', 'laplacian', etc. but instead ∇[var1,var2,...]⋅, ∇[var1,var2,...]×, and Δ[var1,var2,...]). They can simply be put before the variable
     - Please use '[]' to enclose the variables here rather than '()' as otherwise the parser will get confused
-    - If x is a variable, do not use x but instead × for the curl
+    - Do not use x but instead × for the curl to not confuse it with the variable
 - You can also use operators in the focus. The operator must use () around its operand
     - If the coefficient to your term is 1 and you want to include an operator, you must still write "()" before your term
     - Currently, only string operators are supported
@@ -137,7 +139,7 @@ equation_structure = [
 
 ### OR ###
 
-equation_structure = "u_xx + u_yy"
+equation_structure = "Δ[x,y]u = 0"
 ```
 
 ### Forced wave equation

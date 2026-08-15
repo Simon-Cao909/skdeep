@@ -48,7 +48,7 @@ model_structure = [
 #
 # ----------------------------------
 
-equation_structure = "u_xx + u_yy"
+equation_structure = "Δ[x,y]u = 0"
 
 
 # ----------------------------------

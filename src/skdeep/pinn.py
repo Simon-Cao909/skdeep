@@ -784,10 +784,10 @@ class DeepPINN(DeepEstimator):
              loc: dict,
              n_samples: int = 50,
              function: str | None = None,
-             vec_el: int | tuple | None =None,
+             vec_el: int | tuple | None = None,
              draw: bool = True,
              ax: Axes | None = None,
-             use_heatmap: bool =True) -> Axes:
+             use_heatmap: bool = True) -> Axes:
         '''
         Plots the function.
 

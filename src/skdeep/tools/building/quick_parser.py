@@ -246,9 +246,9 @@ def parse_eqn(eqn):
         var = focus[0]
         derivs = []
 
-        nabla_i = var.find('∇')
+        nabla_i = find_one(var,['∇^2','∇','Δ'])
         if nabla_i != -1:
-            end_sym = find_one(var,['⋅','●','×','x',']'])
+            end_sym = find_one(var,['⋅','●','×',']',')'])
             derivs.append(var[nabla_i:end_sym+1])
             var = var[end_sym+1:]
 
