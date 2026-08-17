@@ -154,7 +154,8 @@ def find_deriv(i,d,var_to_val,tape,variables,derivs,ind,coordinates):
 
     vec_val = derivs[ind]
 
-    if d in variables:                    
+    if d in variables:
+        vs = []               
         apply = apply_single
     elif is_nabla(d) or is_laplace(d):
         # When it uses nabla, needs to be of form ∇[var1,var2,...] or Δ[var1,var2,...] for laplacian
