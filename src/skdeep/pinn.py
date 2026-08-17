@@ -355,6 +355,8 @@ class DeepPINN(DeepEstimator):
                 var_val = derivs[ind]
             elif var == 'const':
                 var_val = ko.ones_like(result)
+            elif str(var).isnumeric():
+                var_val = ko.ones_like(result)*float(var)
             elif var in variables:
                 var_val = var_to_val[var]
             else:
