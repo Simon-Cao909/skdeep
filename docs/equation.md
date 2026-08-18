@@ -11,7 +11,7 @@ equation_structure must be a list or tuple of dictionaries. The nth dictionary i
 Each dictionary in this list can have keys and values:
 - KEY: 'variable' or 'var' (opt | default='u')
     - The value should be a string that is equal to the variable that this term will be focusing on.
-    - This variable can either be in self.variables or it can be in self.functions, where the focus will be the function. It can also be 'const', where then 1 will be the focus (or (1,1,...) for vector equations)
+    - This variable can either be in self.variables or it can be in self.functions, where the focus will be the function. It can also be 'const' or '', where then 1 will be the focus (or (1,1,...) for vector equations), or some number, where that number will be the focus (or (n,n,n,...) for vector equations)
         - For vector-valued functions, you can use fi as the variable name, where f is the name of the function and i corresponds to the ith element in the vector. This numbering starts at 1 (as opposed to 0)
     - If this key is not included, the default variable will be self.functions[0]
     - Ex. ``{'variable':'x',...}``, ``{'variable':'u1',...}``
@@ -83,7 +83,7 @@ Each dictionary in this list can have keys and values:
     ```
 - KEY: 'operator' or 'op' (opt | default=lambda x: x)
     - The value should either be a callable or a string
-    - This will be the operator that acts on the focus
+    - This will be the operator that acts on the focus after derivatives are taken
     - If a callable, it should only accept one parameter and the focus will be passed as the argument. Only use tensorflow, keras.ops, or standard arithmetic in making this operator to ensure gradients work
         - Do not use things like np.sin
     - If a string, it should be one of:
@@ -94,8 +94,9 @@ Each dictionary in this list can have keys and values:
     - Ex. ``{'operator': lambda y: ko.sin(np.pi*y)}``
 - KEY: 'apply_coef' or 'apply_coefficient' (opt | default='after')
     - The value should be a string
-    - If 'before', the coefficient will be applied before the operator
-    - If 'after', the coefficient will be applied after the operator
+    - If 'before op', the coefficient will be applied before the operator
+    - If 'after op', the coefficient will be applied after the operator
+    - If 'before deriv', the coefficient will be applied before taking the derivative. If there are no derivatives, this is the same as 'before op'
 
 ## If string
 
@@ -113,10 +114,9 @@ equation_structure can also be a string, where you get to write out the equation
     - Please use '[]' to enclose the variables here rather than '()' as otherwise the parser will get confused
     - Do not use x but instead × for the curl to not confuse it with the variable
 - You can also use operators in the focus. The operator must use () around its operand
-    - If the coefficient to your term is 1 and you want to include an operator, you must still write "()" before your term
     - Currently, only string operators are supported
 
-To see how it will be read by the parser, you can import and run tools.building.quick_parser.parse_eqn on your string.
+To see how it will be read by the parser, you can import and run skdeep.tools.building.quick_parser.parse_eqn on your string.
 
 
 ## Examples
@@ -161,7 +161,7 @@ equation_structure = [
 
 ### OR ###
 
-equation_structure = "u_tt - (c^2)u_xx - ()cos(x)"
+equation_structure = "u_tt - (c^2)u_xx = cos(x)"
 ```
 
 ### Maxwell's equations

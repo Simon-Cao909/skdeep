@@ -1,4 +1,4 @@
-import re
+from .equation.op import str_to_op
 
 def safe_get(lt,ind,fallback=None):
     '''
@@ -178,10 +178,24 @@ def find_one(string,lt):
             return find
 
     return -1
-        
+
+def remove_whitespace(eqn):
+    new_eqn = ""
+
+    inbracks = False
+    for char in eqn:
+        if char == '(':
+            inbracks = True
+        elif char == ')':
+            inbracks = False
+
+        if inbracks or char != ' ':
+            new_eqn += char
+
+    return new_eqn
 
 def parse_eqn(eqn):
-    eqn = eqn.replace(" ","")
+    eqn = remove_whitespace(eqn)
     sides = eqn.split("=")
 
     if len(sides) == 1:
@@ -213,9 +227,39 @@ def parse_eqn(eqn):
     for term in parts:
         sign = '-' if term.startswith('-') else ''
         term = term.lstrip("+-")
+
+        found_op = False
+        start_op_on = 0
+        end_op_on = 999
+        for op in str_to_op:
+            op_ind = term.find(op+"(")
+            if op_ind != -1:
+                found_op = True
+                operator = op
+                start_op_on = term.find("(",op_ind)+1
+                end_op_on = term.find(")",start_op_on)
+                if end_op_on == -1:
+                    raise ValueError(f"End bracket for operator not found! Term: {term}")
+                break
+
+        if op_ind == -1:
+            op_ind = 999
         
-        l_brack = term.find("(")
-        r_brack = term.find(")")
+        op_on = term[start_op_on:end_op_on]
+        for op in str_to_op:
+            op_ind2 = op_on.find(op+"(")
+            if op_ind2 != -1:
+                raise ValueError(f"Cannot have two operators!\n"
+                                 f"Term: {term}, First operator: {operator}, Second operator: {op}")
+
+        if not found_op:
+            operator = 'identity'
+
+        if found_op and op_on == '':
+            raise ValueError(f"Operator needs to operate on something! Term: {term}")
+
+        l_brack = term.find("(",0,op_ind)
+        r_brack = term.find(")",l_brack,op_ind)
 
         if (l_brack == -1 and r_brack == -1) or (r_brack == 1 + l_brack):
             cf = -1 if sign == '-' else 1
@@ -225,22 +269,13 @@ def parse_eqn(eqn):
         else:
             cf = sign+term[l_brack+1:r_brack]
 
-        focus = term[r_brack+1:]
+        if found_op:
+            focus = op_on
+        else:
+            focus = term[r_brack+1:]
 
         if len(focus) == 0:
             var = 'const'
-
-        l_brack2 = focus.find("(")
-        r_brack2 = focus.find(")")
-
-        if l_brack2 == -1 and r_brack2 == -1:
-            operator = 'identity'
-        elif l_brack2 == -1 or r_brack2 == -1:
-            raise ValueError(f"left bracket found: {True if l_brack2 != -1 else False}\n"
-                             f"right bracket found: {True if r_brack2 != -1 else False}")
-        else:
-            operator = focus[:l_brack2]
-            focus = focus[l_brack2+1:r_brack2]
 
         focus = focus.split("_")
         var = focus[0]

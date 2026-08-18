@@ -3,7 +3,6 @@ from tensorflow import keras
 import tensorflow.keras.random as kr
 import tensorflow.keras.ops as ko
 import numpy as np
-from numbers import Number
 import matplotlib.pyplot as plt
 from matplotlib.axes import Axes
 
@@ -13,9 +12,10 @@ from .tools.base.pinn_base import PINN
 from .tools.score import compute_score
 from .tools.validation import validate_structure
 from .tools.building.struct_tools import get_any
-from .tools.building.quick_parser import parse_eqn
-from .tools.equation.deriv import find_deriv
-from .tools.equation.coeff import parse_scalar_coef,parse_vector_coef
+from .tools.building.quick_parser import parse_eqn,parse_quick
+from .tools.building.equation.deriv import find_deriv
+from .tools.building.equation.coeff import parse_coef
+from .tools.building.equation.op import get_op
 
 class DeepPINN(DeepEstimator):
 
@@ -33,7 +33,19 @@ class DeepPINN(DeepEstimator):
                  data=None,
                  coordinates='cartesian',
                  loss_weighting=None,
-                 **kwargs):
+                 model_structure=None,
+                 build_setting="normal",
+                 input_shape=None,
+                 epochs=100,
+                 batch_size=32,
+                 early_stopping=True,
+                 n_iter_no_change=10,
+                 validation_split=0.1,
+                 verbose=1,
+                 optimizer="adam",
+                 learning_rate=1e-3,
+                 random_state=None,
+                 scoring_weights=None):
         '''
         Parameters
         ----------
@@ -70,21 +82,24 @@ class DeepPINN(DeepEstimator):
 
             Numbers will be uniformly sampled between the bounds for the variable.
         
-        functions : list or None, default=None
-            A list of function names to be used in the equation.
+        functions : list, dict, or None, default=None
+            The function names to be used in the equation.
+            
+            Each name can only be one character.
 
-            Each can only be one character.
+            If ``list``, it should be a list of names.
 
-            Ex. ``['u','v','w']``
+            If ``dict``, it should be of the form ``{name:n_outputs}`` for each function.
+            - It must be given as a dictionary if ``model_structure`` is not provided.
 
-            If None, only the default function 'u' will be used.
+            Ex. ``['u','v','w']``, ``{'E':3,'B':3}``
 
-            Must be specified for vector-valued outputs or coupled equations.
-        
+            If ``None``, only the default function 'u' will be used.
+
         constants : list or tuple or None, default=None
             Similar to model_structure but specifies the constants in the equation.
 
-            If None, there will be no constants.
+            If ``None``, there will be no constants.
 
             See ``equation.md`` on how to format this.
 
@@ -97,7 +112,7 @@ class DeepPINN(DeepEstimator):
 
             Often used in tandem with trainable constants for iPINNs.
 
-            If None, there will be no extra data.
+            If ``None``, there will be no extra data.
 
             Currently, this must be float32.
         
@@ -135,12 +150,103 @@ class DeepPINN(DeepEstimator):
 
             ``'data'`` is not necessary if there was none given.
 
-            If None, no loss weighting will be applied.
+            If ``None``, no loss weighting will be applied.
             
-        **kwargs
-            Inherited from DeepEstimator
+        model_structure : list or tuple or None
+            For DeepPINN, this can be left as ``None``, and a structure will be made::
+
+                [['N',mins,maxs],
+                 ['D',64,'tanh'],
+                 ['D',64,'tanh'],
+                 output_layer]
+            
+            Where ``output_layer`` will be a dense or multi-output layer that's dependent on 
+            how many functions there are and whether they are vector-valued.
+
+            If you would like to customize this, you can.
+        
+            Specifies the model architecture.
+
+            See ``architecture.md`` for how to format this.
+
+        build_setting : str, default="normal"
+            Decides the format of ``model_structure``.
+
+            Must be either ``'normal'`` or ``'quick'``.
+
+            See ``architecture.md`` for more information.
+
+        input_shape : tuple, list, or None, default=None
+            The input shape.
+
+            For single input, use a tuple specifying the input shape.
+
+            For multi-input, use a list of tuples, where the ith tuple 
+            denotes the input shape of the ith branch.
+
+            If ``None``, it will be guessed from the feature shape.
+
+        epochs : int, default=100
+            The number of epochs to train the model for.
+
+        batch_size : int, default=32
+            The batch size for training.
+
+        early_stopping : bool, default=True
+            Whether the model should stop training early if validation
+            loss doesn't drop after n_iter_no_change iterations.
+
+        n_iter_no_change : int, default=10
+            The amount of iterations without validation loss change until
+            the model stops training.
+
+            (Only matters if early_stopping is True.)
+
+        validation_split : float
+            Should be between 0 and 1.
+
+            This will determine how the training and validation data are split,
+            with validation_split being the fraction of validation data.
+
+        verbose : int
+            If 0, nothing is printed.
+
+            If 1, the process of training is printed.
+
+        optimizer : str, default="adam"
+            The optimizer used in training.
+
+            See Keras for possibilities.
+
+        learning_rate : float, default=1e-4
+            The learning rate for training.
+
+        random_state : int or None, default=None
+            The random state.
+
+            Used for reproducible results.
+
+        scoring_weights : list or tuple or None, default=None
+            For multi-headed output only.
+
+            Determines how the average score is weighted.
+
+            The ith element of this denotes the weighting of the score
+            corresponding to the ith output.
         '''
-        super().__init__(**kwargs)
+        super().__init__(model_structure=model_structure,
+                         build_setting=build_setting,
+                         input_shape=input_shape,
+                         epochs=epochs,
+                         batch_size=batch_size,
+                         early_stopping=early_stopping,
+                         n_iter_no_change=n_iter_no_change,
+                         validation_split=validation_split,
+                         verbose=verbose,
+                         optimizer=optimizer,
+                         learning_rate=learning_rate,
+                         random_state=random_state,
+                         scoring_weights=scoring_weights)
 
         self.variables = variables
         self.equation_structure = equation_structure
@@ -252,6 +358,38 @@ class DeepPINN(DeepEstimator):
             if any(bn in name for name in self.functions):
                 raise ValueError(f"{bn} cannot be used in a function's name")
 
+    def _prepare_structure(self):
+        '''
+        Prepares ``model_structure`` for model construction
+
+        Returns
+        -------
+        structs : list
+            The parsed model structure
+        '''
+        if self.model_structure is None:
+            self.build_setting = 'quick'
+
+            if not isinstance(self.functions,dict):
+                raise ValueError("functions must be a dictionary of the form {name:n_outputs} "
+                                 "when model_structure is not given!")
+
+            outputs = list(self.functions.values())
+            if len(outputs) == 1:
+                output_layer = ['D',outputs[0],'linear']
+            else:
+                output_layer = ['multi-output'] + [['D',out,'linear'] for out in outputs]
+
+            mins = [b[0] for b in self.bounds.values()]
+            maxs = [b[1] for b in self.bounds.values()]
+
+            self.model_structure = [['N',np.asarray(mins),np.asarray(maxs)],
+                                    ['D',64,'tanh'],
+                                    ['D',64,'tanh'],
+                                    output_layer]
+
+        return super()._prepare_structure()
+
     ### CALCULATING EQUATIONS AND CONDITIONS ###
 
     def _calc_eqn(self,X,structure):
@@ -317,17 +455,26 @@ class DeepPINN(DeepEstimator):
                     func_to_val[f] = ev
 
             for ind, struct in enumerate(structure):
-                var = get_any(struct,['variable','var'],fallback=functions[0])
+
+                var = get_any(struct,['variable','var'],fallback=next(iter(functions)))
+                coef = get_any(struct,['coefficient','coef'],fallback=1)
                 derivatives = get_any(struct,['derivatives','deriv'],fallback=[])
+                apply_when = get_any(struct,['apply_coef','apply_coefficient'],fallback='after')
 
                 if var[0] not in functions:
                     if len(derivatives) != 0:
                         raise ValueError("Derivatives can only operate on functions")
                     continue
 
+                cfs = (
+                    parse_coef(coef,var_to_val,func_to_val,self.constants_,self._calc_eqn)
+                    if apply_when.lower() == 'before deriv' else 1
+                )
+                
                 derivs[ind] = func_to_val.get(var)
                 if derivs[ind] is None:
                     raise ValueError(f"{var} is not a function in the given functions")
+                derivs[ind] *= cfs
 
                 for i,d in enumerate(derivatives):
                     find_deriv(i,d,var_to_val,tape,variables,derivs,ind,self.coordinates)
@@ -336,24 +483,16 @@ class DeepPINN(DeepEstimator):
 
         for ind,struct in enumerate(structure):
 
-            var = get_any(struct,['variable','var'],fallback=functions[0])
+            var = get_any(struct,['variable','var'],fallback=next(iter(functions)))
             coef = get_any(struct,['coefficient','coef'],fallback=1)
             operator = get_any(struct,['op','operator'],fallback=lambda x: x)
             apply_when = get_any(struct,['apply_coef','apply_coefficient'],fallback='after')
 
-            if isinstance(coef,Number):
-                cfs = coef
-            elif isinstance(coef,str):
-                parser = parse_vector_coef if ',' in coef else parse_scalar_coef
-                cfs = parser(coef,var_to_val,func_to_val,self.constants_)
-            elif isinstance(coef,(list,tuple)):
-                cfs = self._calc_eqn(X,coef)
-            else:
-                raise ValueError(f"Unknown coefficient type {type(coef)}")
+            cfs = parse_coef(coef,var_to_val,func_to_val,self.constants_,self._calc_eqn)
 
             if var[0] in functions:
                 var_val = derivs[ind]
-            elif var == 'const':
+            elif var.lower() in ['const','']:
                 var_val = ko.ones_like(result)
             elif str(var).isnumeric():
                 var_val = ko.ones_like(result)*float(var)
@@ -362,25 +501,7 @@ class DeepPINN(DeepEstimator):
             else:
                 raise ValueError(f"Unknown variable {var}")
 
-            str_to_op = {
-                'identity':lambda x: x,
-                'sin':ko.sin,
-                'sinh':ko.sinh,
-                'cos':ko.cos,
-                'cosh':ko.cosh,
-                'tan':ko.tan,
-                'tanh':ko.tanh,
-                'ln':ko.log
-            }
-
-            if isinstance(operator,str):
-                if operator not in str_to_op:
-                    raise ValueError(
-                        f"If string, operator must be in {list(str_to_op.keys())}"
-                    )
-
-                name = operator
-                operator = lambda var: str_to_op[name](var)
+            operator = get_op(operator)
 
             if tf.is_tensor(result):
                 if result.shape != var_val.shape:
@@ -388,12 +509,13 @@ class DeepPINN(DeepEstimator):
                                      f"Shape of result: {result.shape}. "
                                      f"Shape of term {ind}: {var_val.shape}")
 
-            if apply_when.lower() == 'before':
+            if apply_when.lower() == 'before op' or (apply_when.lower() == 'before deriv'
+                                                     and var[0] not in functions):
                 res = operator(cfs*var_val)
-            elif apply_when.lower() == 'after':
+            elif apply_when.lower() == 'after op':
                 res = operator(var_val)*cfs
             else:
-                raise ValueError("apply_when must either be 'before' or 'after'")
+                raise ValueError("apply_when must be 'before op', 'after op', or 'before deriv'")
             
             result += res
 
@@ -516,7 +638,7 @@ class DeepPINN(DeepEstimator):
         Prepares the hyperparameters before training
         '''
         if self.functions is None:
-            self.functions = ['u']
+            self.functions = {'u':1}
 
         if self.constants is None:
             self.constants = []
@@ -818,7 +940,7 @@ class DeepPINN(DeepEstimator):
         function : str or None, default=None
             The function to plot.
             
-            If None, it will be ``self.functions[0]``.
+            If None, it will be the first function.
         
         vec_el : int, tuple, or None, default=None
             For vector valued functions, the element of the vector to plot. 
@@ -874,8 +996,8 @@ class DeepPINN(DeepEstimator):
 
         pred = self.predict(X)
 
-        f_ind = self.functions.index(function) if function is not None else 0
-        f_label = function if function is not None else self.functions[0]
+        f_ind = list(self.functions).index(function) if function is not None else 0
+        f_label = function if function is not None else next(iter(self.functions))
 
         if isinstance(pred,(list,tuple)):
             pred = pred[f_ind]

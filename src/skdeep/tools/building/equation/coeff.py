@@ -1,5 +1,6 @@
 import numpy as np
 import tensorflow.keras.ops as ko
+from numbers import Number
 
 def parse_scalar_coef(coef,var_to_val,func_to_val,constants):
     if coef.isnumeric():
@@ -94,3 +95,16 @@ def parse_vector_coef(coef,var_to_val,func_to_val,constants):
     ],axis=1)
 
     return extra_l*cfs*extra_r
+
+def parse_coef(coef,var_to_val,func_to_val,constants,calc_eqn):
+    if isinstance(coef,Number):
+        cfs = coef
+    elif isinstance(coef,str):
+        parser = parse_vector_coef if ',' in coef else parse_scalar_coef
+        cfs = parser(coef,var_to_val,func_to_val,constants)
+    elif isinstance(coef,(list,tuple)):
+        cfs = calc_eqn(X,coef)
+    else:
+        raise ValueError(f"Unknown coefficient type {type(coef)}")
+
+    return cfs
