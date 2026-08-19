@@ -92,7 +92,7 @@ Each dictionary in this list can have keys and values:
         - If the focus is a vector-valued function, the operator will be applied to every component
     - If this key is not included, the default will be the identity function (lambda x: x)
     - Ex. ``{'operator': lambda y: ko.sin(np.pi*y)}``
-- KEY: 'apply_coef' or 'apply_coefficient' (opt | default='after')
+- KEY: 'apply_coef' or 'apply_coefficient' (opt | default='after op')
     - The value should be a string
     - If 'before op', the coefficient will be applied before the operator
     - If 'after op', the coefficient will be applied after the operator

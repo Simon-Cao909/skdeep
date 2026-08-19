@@ -378,7 +378,7 @@ class DeepPINN(DeepEstimator):
             if len(outputs) == 1:
                 output_layer = ['D',outputs[0],'linear']
             else:
-                output_layer = ['multi-output'] + [['D',out,'linear'] for out in outputs]
+                output_layer = ['multi-output',[[['D',out,'linear']] for out in outputs]]
 
             mins = [b[0] for b in self.bounds.values()]
             maxs = [b[1] for b in self.bounds.values()]
@@ -459,7 +459,7 @@ class DeepPINN(DeepEstimator):
                 var = get_any(struct,['variable','var'],fallback=next(iter(functions)))
                 coef = get_any(struct,['coefficient','coef'],fallback=1)
                 derivatives = get_any(struct,['derivatives','deriv'],fallback=[])
-                apply_when = get_any(struct,['apply_coef','apply_coefficient'],fallback='after')
+                apply_when = get_any(struct,['apply_coef','apply_coefficient'],fallback='after op')
 
                 if var[0] not in functions:
                     if len(derivatives) != 0:
@@ -467,17 +467,18 @@ class DeepPINN(DeepEstimator):
                     continue
 
                 cfs = (
-                    parse_coef(coef,var_to_val,func_to_val,self.constants_,self._calc_eqn)
+                    parse_coef(coef,var_to_val,func_to_val,self.constants_,self._calc_eqn,X)
                     if apply_when.lower() == 'before deriv' else 1
                 )
-                
-                derivs[ind] = func_to_val.get(var)
-                if derivs[ind] is None:
-                    raise ValueError(f"{var} is not a function in the given functions")
-                derivs[ind] *= cfs
 
-                for i,d in enumerate(derivatives):
-                    find_deriv(i,d,var_to_val,tape,variables,derivs,ind,self.coordinates)
+                if var[0] in functions:
+                    derivs[ind] = func_to_val.get(var)
+                    if derivs[ind] is None:
+                        raise ValueError(f"{var} is not a function in the given functions")
+                    derivs[ind] *= cfs
+
+                    for i,d in enumerate(derivatives):
+                        find_deriv(i,d,var_to_val,tape,variables,derivs,ind,self.coordinates)
 
         result = 0
 
@@ -486,9 +487,9 @@ class DeepPINN(DeepEstimator):
             var = get_any(struct,['variable','var'],fallback=next(iter(functions)))
             coef = get_any(struct,['coefficient','coef'],fallback=1)
             operator = get_any(struct,['op','operator'],fallback=lambda x: x)
-            apply_when = get_any(struct,['apply_coef','apply_coefficient'],fallback='after')
+            apply_when = get_any(struct,['apply_coef','apply_coefficient'],fallback='after op')
 
-            cfs = parse_coef(coef,var_to_val,func_to_val,self.constants_,self._calc_eqn)
+            cfs = parse_coef(coef,var_to_val,func_to_val,self.constants_,self._calc_eqn,X)
 
             if var[0] in functions:
                 var_val = derivs[ind]
@@ -507,15 +508,19 @@ class DeepPINN(DeepEstimator):
                 if result.shape != var_val.shape:
                     raise ValueError(f"All terms in the equation must have the same shape. "
                                      f"Shape of result: {result.shape}. "
-                                     f"Shape of term {ind}: {var_val.shape}")
+                                     f"Shape of term {ind}: {var_val.shape}\n"
+                                     f"Struct: {struct}")
 
             if apply_when.lower() == 'before op' or (apply_when.lower() == 'before deriv'
                                                      and var[0] not in functions):
                 res = operator(cfs*var_val)
             elif apply_when.lower() == 'after op':
                 res = operator(var_val)*cfs
+            elif apply_when.lower() == 'before deriv':
+                res = operator(var_val)
             else:
-                raise ValueError("apply_when must be 'before op', 'after op', or 'before deriv'")
+                raise ValueError("apply_when must be 'before op', 'after op', or 'before deriv'\n"
+                                 f"Given: {apply_when}")
             
             result += res
 

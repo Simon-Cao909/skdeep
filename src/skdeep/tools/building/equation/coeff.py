@@ -24,14 +24,11 @@ def parse_scalar_coef(coef,var_to_val,func_to_val,constants):
             op_change = False
 
             if char in func_to_val:
-                if c_ind + 1 < len(coef) and isinstance(coef[c_ind+1],int):
+                if c_ind + 1 < len(coef) and coef[c_ind+1].isnumeric():
                     to_apply = func_to_val[char+str(coef[c_ind+1])]
                     skip = True
                 else:
                     to_apply = func_to_val[char]
-
-                if to_apply.shape[1] != 1:
-                    raise ValueError(f"Coefficient {char} cannot be a vector-valued function.")
             elif char in var_to_val:
                 to_apply = var_to_val[char]
             elif char in constants:
@@ -96,7 +93,7 @@ def parse_vector_coef(coef,var_to_val,func_to_val,constants):
 
     return extra_l*cfs*extra_r
 
-def parse_coef(coef,var_to_val,func_to_val,constants,calc_eqn):
+def parse_coef(coef,var_to_val,func_to_val,constants,calc_eqn,X):
     if isinstance(coef,Number):
         cfs = coef
     elif isinstance(coef,str):

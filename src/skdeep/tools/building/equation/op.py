@@ -1,4 +1,5 @@
 import tensorflow.keras.ops as ko
+from collections.abc import Callable
 
 str_to_op = {
     'identity':lambda x: x,
@@ -14,7 +15,7 @@ str_to_op = {
 }
 
 def get_op(operator):
-    if isinstance(operator,callable):
+    if isinstance(operator,Callable):
         return operator
     elif isinstance(operator,str):
         if operator not in str_to_op:
@@ -28,3 +29,5 @@ def get_op(operator):
         raise ValueError("Operator given of unknown type.\n"
                          f"Operator: {operator}, type: {type(operator)}\n"
                          "Expected type callable or string")
+
+    return operator
