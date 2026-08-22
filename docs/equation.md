@@ -10,11 +10,48 @@ equation_structure must be a list or tuple of dictionaries. The nth dictionary i
 
 Each dictionary in this list can have keys and values:
 - KEY: 'variable' or 'var' (opt | default='u')
-    - The value should be a string that is equal to the variable that this term will be focusing on.
-    - This variable can either be in self.variables or it can be in self.functions, where the focus will be the function. It can also be 'const' or '', where then 1 will be the focus (or (1,1,...) for vector equations), or some number, where that number will be the focus (or (n,n,n,...) for vector equations)
-        - For vector-valued functions, you can use fi as the variable name, where f is the name of the function and i corresponds to the ith element in the vector. This numbering starts at 1 (as opposed to 0)
-    - If this key is not included, the default variable will be self.functions[0]
-    - Ex. ``{'variable':'x',...}``, ``{'variable':'u1',...}``
+    - The value should either be a number, string, or of the form equation_structure
+    - This is the focus of the term. It can either be a scalar or a vector.
+    - If a number was given, the number will simply be the focus
+    - If a string was given:
+        - For scalar:
+            - The string can start with '-', where then the coefficient will just be negative
+            - If the string is just numeric, that number will be the coefficient
+            - If the string contains non-numeric characters, then the only non-numeric characters that can be there are:
+                - variables in self.variables
+                - constants
+                - integers (0-9)
+                    - Note that '10' will be interpreted as 1 * 0. If you would like to use any multi-digit integer, you can include it in 'operator'
+                - functions in self.functions
+                - 'π' or 'e'
+                - '^' or '/'
+                - \* If an integer happens after a function name, then it will be assumed you are indexing a vector valued function as opposed to multiplying by that numeric character
+                    - That is, 'u1' will be interpreted as u being a vector-valued function and 1 being its first component as opposed to u * 1
+            - where the respective thing will be multiplied if it is a value
+            - If it is an operator (^, /, +, or -), then that will change the current setting to match that of the operator
+                - All future elements in the string will be applied in adherence to the current setting
+                - The default is multiplication, and it will be reset to multiplication if you add a space ' ' or '*' in the string
+                - For instance, 'xz^2y/3u' would be ((xz)^(2y))/(3u) while 'x z^2 y/3 u' would be x\*(z^2)\*(y/3)\*u
+                - For reasons, if '-' was included at the beginning of the string, it will be applied after all other operations so something like -x^2 will be read as -(x^2), not (-x)^2
+        - For vectors:
+            - The string must contain symbols '(' and ')' or '[' and ']', which enclose the elements of the vector. The elements should be separated by commas ','
+            - Each element will be parsed like a scalar coefficient
+            - The string can also contain things to the left or right of the brackets, which will be multiplied element-wise into the string
+    - If it was given of the form equation_structure, then the focus will be the given equation
+    - If this key is not included, the default will be 1
+    - Ex. ``{'var':'u',...}``, ``{'var':'uxy',...}``, ``{'var':'E1',...}``, ``{'var':'3(xt^2,u)'}``, or:
+    ```python
+    {
+        ### Variable is sin(x) + cos(y)
+        'var':[
+            {'var':'x',
+             'operator': lambda x: ko.sin(x)},
+            {'var':'y',
+             'operator': lambda y: ko.cos(y)},
+        ],
+        ...
+    }
+    ```
 - KEY: 'derivatives' or 'deriv' (opt | default=[])
     - The value should be a list containing variables or a "special string" (see *)
     - This list will be iterated over, applying each derivative inside
@@ -29,6 +66,11 @@ Each dictionary in this list can have keys and values:
             - Δ[var1,var2,...] or ∇^2[var1,var2,...] or 'laplacian[var1,var2,...]'
                 - The laplacian will be taken. This works on both scalar functions and vector functions
             - var1, var2, ... are variables that the operator will be taken with respect to
+                - If they are not included, it will automatically use the spatial variables
+                - 'x','y','z' for cartesian
+                - 'r' or 'ρ', 'θ' or 'φ' for polar
+                - 'r' or 'ρ', 'θ' or 'φ', 'z' for cylindrical
+                - 'r' or 'ρ', 'θ' (polar), 'φ' (azimuthal) for spherical
             - Alternatively, you can use () to enclose the variables, but do NOT do this if you are using the string parser!!!
             - You can specify the coordinate system using the ``coordinates`` argument during initialization
     - This should only be included if the value associated with 'variable' was a function or is of the form fi, where f is the name of a vector-valued function and i is its ith component
@@ -36,51 +78,8 @@ Each dictionary in this list can have keys and values:
     - If this key is not included, the default will be [], meaning no derivatives will be taken
     - Ex. ``{'derivatives':['x','x','t'],...}``, ``{'derivatives':['t','∇(x,y,z)⋅'],...}``
 - KEY: 'coefficient' or 'coef' (opt | default=1)
-    - The value should either be a number, string, or of the form equation_structure
-        - Note that this currently does not support the equation string parsing you see below.
-    - This is the coefficient of the term that will by default be applied after the operator (see below). It can either be a scalar or a vector.
-        - The multiplication is always element-wise, so if the coefficient is a vector and the function is vector-valued, then it will be an element-wise multiplication as opposed to a dot product
-    - If a number was given, the number will simply be the coefficient
-    - If a string was given:
-        - For scalar coefficients:
-            - The string can start with '-', where then the coefficient will just be negative
-            - If the string is just numeric, that number will be the coefficient
-            - If the string contains non-numeric characters, then the only non-numeric characters that can be there are:
-                - variables in self.variables
-                - constants
-                - integers (0-9)
-                    - Note that '10' will be interpreted as 1 * 0. If you would like to use any multi-digit integer, you can include it in 'operator'
-                - functions in self.functions
-                    - Currently, vector-valued functions cannnot be coefficients
-                - 'π' or 'e'
-                - '^' or '/'
-                - \* If an integer happens after a function name, then it will be assumed you are indexing a vector valued function as opposed to multiplying by that numeric character
-                    - That is, 'u1' will be interpreted as u being a vector-valued function and 1 being its first component as opposed to u * 1
-            - where the respective thing will be multiplied if it is a value
-            - If it is an operator (^ or /), then that will change the current setting to match that of the operator
-                - All future elements in the string will be applied in adherence to the current setting
-                - The default is multiplication, and it will be reset to multiplication if you add a space ' ' in the string
-                - For instance, 'xz^2y/3u' would be ((xz)^(2y))/(3u) while 'x z^2 y/3 u' would be x\*(z^2)\*(y/3)\*u
-                - For reasons, if '-' was included at the beginning of the string, it will be applied after the calculation of the coefficient so something like -x^2 will be read as -(x^2)
-        - For vector coefficients:
-            - The string must contain symbols '(' and ')' or '[' and ']', which enclose the elements of the vector. The elements should be separated by commas ','
-            - Each element will be parsed like a scalar coefficient
-            - The string can also contain things to the left or right of the brackets, which will be multiplied element-wise into the string
-    - If it was given of the form equation_structure, then the coefficient will be the given equation
-    - If this key is not included, the default will be 1
-    - Ex. ``{'coef':'2π',...}``, ``{'coef':np.pi,...}``, ``{'coef':'2xtu^2',...}``, ``{'coef':'3(xt^2,u)'}``, or:
-    ```python
-    {
-        ### Coefficient is sin(x) + cos(y)
-        'coefficient':[
-            {'var':'x',
-             'operator': lambda x: ko.sin(x)},
-            {'var':'y',
-             'operator': lambda y: ko.cos(y)},
-        ],
-        ...
-    }
-    ```
+    - The same as 'var' but now is a coefficient
+    - By default, this is applied after the operator and derivatives, but can be changed using 'apply_coef'
 - KEY: 'operator' or 'op' (opt | default=lambda x: x)
     - The value should either be a callable or a string
     - This will be the operator that acts on the focus after derivatives are taken
@@ -108,7 +107,8 @@ equation_structure can also be a string, where you get to write out the equation
 - For each term, the coefficients must be between round brackets
     - Powers (^) and division (/) are now supported in this
     - Please use the square brackets '[' and ']' if you want to use vector coefficients
-- The focus of each term must be after the coefficient. This focus can only be of one variable, function, or component of a vector valued function fi
+- The focus of each term must be after the coefficient. This focus can be in the form described above with 'var'
+    - You can surround the focus in brackets for readability, but functionally it will do nothing
 - In the focus, single variable derivatives are indicated by the '_' symbol, where each character after that symbol will be a derivative
 - Derivatives involving '∇' or 'Δ' need to use the exact symbols (so no 'div', 'curl', 'laplacian', etc. but instead ∇[var1,var2,...]⋅, ∇[var1,var2,...]×, and Δ[var1,var2,...]). They can simply be put before the variable
     - Please use '[]' to enclose the variables here rather than '()' as otherwise the parser will get confused

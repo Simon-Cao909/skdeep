@@ -18,10 +18,10 @@ constants = [
 ]
 
 equation_structure = [
-    "∇[x,y,z]⋅E = 0",
-    "∇[x,y,z]⋅B = 0",
-    "∇[x,y,z]×E = -B_t",
-    "∇[x,y,z]×B = E_t",
+    "∇⋅E = 0",
+    "∇⋅B = 0",
+    "∇×E = -B_t",
+    "∇×B = E_t",
 ]
 
 conditions = [

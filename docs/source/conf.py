@@ -9,7 +9,7 @@
 project = 'skdeep'
 copyright = '2026, Simon W. Cao'
 author = 'Simon W. Cao'
-release = '1.7.12'
+release = '1.7.13'
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration

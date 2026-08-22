@@ -4,11 +4,13 @@ from scipy.sparse import issparse
 from tensorflow import keras
 from tensorflow.keras import layers as kl
 import numpy as np
+from typing import Literal,Callable
 
 from .tools.building.quick_parser import parse_quick
 from .tools.score import compute_score, neg_mse_score
 from .tools.validation import validate_branches, validate_structure
 from .tools.building.add_block import add_block
+from .tools.types import ModelStructureType
 
 class DeepEstimator(BaseEstimator):
     '''
@@ -21,22 +23,22 @@ class DeepEstimator(BaseEstimator):
     
     def __init__(
         self,
-        model_structure,
-        build_setting="normal",
-        input_shape=None,
-        epochs=100,
-        batch_size=32,
-        early_stopping=True,
-        n_iter_no_change=10,
-        validation_split=0.1,
-        verbose=1,
-        loss="mse",
-        metrics=None,
-        optimizer="adam",
-        learning_rate=1e-3,
-        random_state=None,
-        shuffle=True,
-        scoring_weights=None,
+        model_structure: ModelStructureType,
+        build_setting: Literal['normal','quick'] = "normal",
+        input_shape: list | tuple | None = None,
+        epochs: int = 100,
+        batch_size: int = 32,
+        early_stopping: bool = True,
+        n_iter_no_change: int = 10,
+        validation_split: float = 0.1,
+        verbose: Literal[0,1,2,'auto'] = 1,
+        loss: keras.losses.Loss | Callable | str | list = "mse",
+        metrics: keras.metrics.Metric | list | tuple | dict | None = None,
+        optimizer: keras.optimizers.Optimizer | str = "adam",
+        learning_rate: float = 1e-3,
+        random_state: int | None = None,
+        shuffle: bool = True,
+        scoring_weights: list | tuple | None = None
     ):
         '''
         Parameters
@@ -90,16 +92,16 @@ class DeepEstimator(BaseEstimator):
 
             If 1, the process of training is printed.
 
-        loss : str or callable or list, default="mse"
+        loss : keras.losses.Loss, str, callable, or list, default="mse"
             The loss function used. See Keras for custom ones.
 
             If your model has a multi-output layer, you can use a list
             where the ith loss corresponds to the ith output.
 
-        metrics : list, tuple, dict, or None, default=None
+        metrics : keras.metrics.Metric, list, tuple, dict, or None, default=None
             The metrics tracked during training.
 
-        optimizer : str, default="adam"
+        optimizer : str or keras.optimizers.Optimizer, default="adam"
             The optimizer used in training.
 
             See Keras for possibilities.

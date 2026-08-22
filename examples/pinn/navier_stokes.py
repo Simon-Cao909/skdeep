@@ -2,31 +2,15 @@ from skdeep import DeepPINN
 
 pinn = DeepPINN(variables=['x','y','z','t'],
                 equation_structure=[
-                    [{'var':'ρ','deriv':['t']},
-                    {'var':'V','coef':'ρ','deriv':['∇[x,y,z]⋅'],'apply_coef':'before deriv'}],
+                    "ρ_t + ∇⋅(ρV) = 0",
+                    "(ρV1)_t + ∇⋅(ρV*V1) = -ρ_x + (1/R)∇⋅a",
+                    "(ρV2)_t + ∇⋅(ρV*V2) = -ρ_y + (1/R)∇⋅b",
+                    "(ρV3)_t + ∇⋅(ρV*V3) = -ρ_z + (1/R)∇⋅c",
 
-                    [{'var':'ρ','coef':'V1','deriv':['t'],'apply_coef':'before deriv'},
-                     {'var':'V','coef':'ρV1','deriv':['∇[x,y,z]⋅'],'apply_coef':'before deriv'},
-                     {'var':'ρ','deriv':['x']},
-                     {'var':'a','coef':'-1/R','deriv':['∇[x,y,z]⋅']}],
-
-                    [{'var':'ρ','coef':'V2','deriv':['t'],'apply_coef':'before deriv'},
-                     {'var':'V','coef':'ρV2','deriv':['∇[x,y,z]⋅'],'apply_coef':'before deriv'},
-                     {'var':'ρ','deriv':['y']},
-                     {'var':'b','coef':'-1/R','deriv':['∇[x,y,z]⋅']}],
-
-                    [{'var':'ρ','coef':'V3','deriv':['t'],'apply_coef':'before deriv'},
-                     {'var':'V','coef':'ρV3','deriv':['∇[x,y,z]⋅'],'apply_coef':'before deriv'},
-                     {'var':'ρ','deriv':['z']},
-                     {'var':'c','coef':'-1/R','deriv':['∇[x,y,z]⋅']}],
-
-                    [{'var':'E','deriv':['t']},
-                     {'var':'V','coef':'E','apply_coef':'before deriv','deriv':['∇[x,y,z]⋅']},
-                     {'var':'V','coef':'p','apply_coef':'before deriv','deriv':['∇[x,y,z]⋅']},
-                     {'var':'q','coef':'1/RP','deriv':['∇[x,y,z]⋅']}] + \
-                    [{'var':f'a{i}','coef':f'-V{i}/R','deriv':['x'],'apply_coef':'before deriv'} for i in range(1,4)] + \
-                    [{'var':f'b{i}','coef':f'-V{i}/R','deriv':['y'],'apply_coef':'before deriv'} for i in range(1,4)] + \
-                    [{'var':f'c{i}','coef':f'-V{i}/R','deriv':['z'],'apply_coef':'before deriv'} for i in range(1,4)]
+                    "E_t + ∇⋅(EV) + ∇⋅(pV) + (1/RP)∇⋅q = \
+                    (1/R)(a⋅V)_x + \
+                    (1/R)(b⋅V)_y + \
+                    (1/R)(c⋅V)_z"
                 ],
                 functions={'ρ':1,'V':3,'a':3,'b':3,'c':3,'E':1,'q':3,'p':1},
                 constants=[{'name':'R','val':1},{'name':'P','val':1}],

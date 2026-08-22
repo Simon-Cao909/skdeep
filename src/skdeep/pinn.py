@@ -5,6 +5,9 @@ import tensorflow.keras.ops as ko
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.axes import Axes
+from typing import Literal
+from typing_extensions import Self
+from numbers import Number
 
 from .estimator import DeepEstimator
 
@@ -12,10 +15,11 @@ from .tools.base.pinn_base import PINN
 from .tools.score import compute_score
 from .tools.validation import validate_structure
 from .tools.building.struct_tools import get_any
-from .tools.building.quick_parser import parse_eqn,parse_quick
+from .tools.building.quick_parser import parse_eqn
 from .tools.building.equation.deriv import find_deriv
-from .tools.building.equation.coeff import parse_coef
+from .tools.building.equation.coeff import parse_term
 from .tools.building.equation.op import get_op
+from .tools.types import EquationType, MultiEquationType, ConditionsType, ModelStructureType
 
 class DeepPINN(DeepEstimator):
 
@@ -23,29 +27,29 @@ class DeepPINN(DeepEstimator):
     must_be_vector = True
 
     def __init__(self,
-                 variables,
-                 equation_structure,
-                 conditions,
-                 bounds,
-                 n_samples,
-                 functions=None,
-                 constants=None,
-                 data=None,
-                 coordinates='cartesian',
-                 loss_weighting=None,
-                 model_structure=None,
-                 build_setting="normal",
-                 input_shape=None,
-                 epochs=100,
-                 batch_size=32,
-                 early_stopping=True,
-                 n_iter_no_change=10,
-                 validation_split=0.1,
-                 verbose=1,
-                 optimizer="adam",
-                 learning_rate=1e-3,
-                 random_state=None,
-                 scoring_weights=None):
+                 variables: list[str] | tuple[str],
+                 equation_structure: EquationType | MultiEquationType,
+                 conditions: ConditionsType,
+                 bounds: dict[str, list | tuple],
+                 n_samples: int,
+                 functions: list | dict | None = None,
+                 constants: list | tuple | None =None,
+                 data: tf.Tensor | None = None,
+                 coordinates: Literal['cartesian','polar','cylindrical','spherical'] = 'cartesian',
+                 loss_weighting: dict[Literal['pde','conditions','data'], Number] = None,
+                 model_structure: ModelStructureType = None,
+                 build_setting: Literal['normal','quick'] = "normal",
+                 input_shape: list | tuple | None = None,
+                 epochs: int = 100,
+                 batch_size: int = 32,
+                 early_stopping: bool = True,
+                 n_iter_no_change: int = 10,
+                 validation_split: float = 0.1,
+                 verbose: Literal[0,1,2,'auto'] = 1,
+                 optimizer: keras.optimizers.Optimizer | str = "adam",
+                 learning_rate: float = 1e-3,
+                 random_state: int | None = None,
+                 scoring_weights: list | tuple | None = None):
         '''
         Parameters
         ----------
@@ -59,10 +63,19 @@ class DeepPINN(DeepEstimator):
         equation_structure : list or tuple or string
             Similar to model_structure but species the equation.
 
-            See ``equation.md`` on how to format this.
+            If elements of the list are dicts, each dict can have keys: 
+            ``'var'``, ``'coef'``, ``'deriv'``, ``'op'``, ``'apply_coef'``.
+
+            If it is a string or list of strings, each string is just the equation 
+            written out.
+
+            See ``equation.md`` for more.
 
         conditions : list or tuple
             Similar to model_structure but specifies the conditions.
+
+            Elements of the list or tuple must be dicts that contain keys: 
+            ``'loc'``, ``'eqn'``, ``'n_samples'``.
 
             See ``equation.md`` on how to format this.
         
@@ -100,6 +113,9 @@ class DeepPINN(DeepEstimator):
             Similar to model_structure but specifies the constants in the equation.
 
             If ``None``, there will be no constants.
+
+            If not ``None``, the elements should be dicts with keys: 
+            ``'name'``, ``'val'``, ``'trainable'``, ``'dtype'``.
 
             See ``equation.md`` on how to format this.
 
@@ -461,24 +477,19 @@ class DeepPINN(DeepEstimator):
                 derivatives = get_any(struct,['derivatives','deriv'],fallback=[])
                 apply_when = get_any(struct,['apply_coef','apply_coefficient'],fallback='after op')
 
-                if var[0] not in functions:
+                if all(v not in functions and v not in variables for v in var):
                     if len(derivatives) != 0:
-                        raise ValueError("Derivatives can only operate on functions")
-                    continue
+                        raise ValueError("Derivatives can only operate on functions and variables")
 
                 cfs = (
-                    parse_coef(coef,var_to_val,func_to_val,self.constants_,self._calc_eqn,X)
+                    parse_term(coef,var_to_val,func_to_val,self.constants_,self._calc_eqn,X)
                     if apply_when.lower() == 'before deriv' else 1
                 )
 
-                if var[0] in functions:
-                    derivs[ind] = func_to_val.get(var)
-                    if derivs[ind] is None:
-                        raise ValueError(f"{var} is not a function in the given functions")
-                    derivs[ind] *= cfs
+                derivs[ind] = parse_term(var,var_to_val,func_to_val,self.constants_,self._calc_eqn,X)*cfs
 
-                    for i,d in enumerate(derivatives):
-                        find_deriv(i,d,var_to_val,tape,variables,derivs,ind,self.coordinates)
+                for i,d in enumerate(derivatives):
+                    find_deriv(i,d,var_to_val,tape,variables,derivs,ind,self.coordinates)
 
         result = 0
 
@@ -487,20 +498,19 @@ class DeepPINN(DeepEstimator):
             var = get_any(struct,['variable','var'],fallback=next(iter(functions)))
             coef = get_any(struct,['coefficient','coef'],fallback=1)
             operator = get_any(struct,['op','operator'],fallback=lambda x: x)
+            derivatives = get_any(struct,['derivatives','deriv'],fallback=[])
             apply_when = get_any(struct,['apply_coef','apply_coefficient'],fallback='after op')
 
-            cfs = parse_coef(coef,var_to_val,func_to_val,self.constants_,self._calc_eqn,X)
+            cfs = parse_term(coef,var_to_val,func_to_val,self.constants_,self._calc_eqn,X)
 
-            if var[0] in functions:
+            if len(derivatives) != 0:
                 var_val = derivs[ind]
             elif var.lower() in ['const','']:
                 var_val = ko.ones_like(result)
-            elif str(var).isnumeric():
-                var_val = ko.ones_like(result)*float(var)
-            elif var in variables:
-                var_val = var_to_val[var]
             else:
-                raise ValueError(f"Unknown variable {var}")
+                var_val = parse_term(var,var_to_val,func_to_val,self.constants_,self._calc_eqn,X)
+                if isinstance(var_val,Number):
+                    var_val = ko.ones_like(result)*var_val
 
             operator = get_op(operator)
 
@@ -727,7 +737,10 @@ class DeepPINN(DeepEstimator):
 
     ### SKLEARN METHODS ###
 
-    def fit(self,X=None,y=None,**fit_params):
+    def fit(self,
+            X: np.typing.ArrayLike = None,
+            y: None = None,
+            **fit_params) -> Self:
         '''
         Trains the model to predict the given PDE
 
@@ -816,7 +829,8 @@ class DeepPINN(DeepEstimator):
         
         return self
 
-    def predict(self,X=None):
+    def predict(self,
+                X: np.typing.ArrayLike = None) -> np.ndarray:
         '''
         Predicts the values of the function given the input.
 
@@ -849,7 +863,9 @@ class DeepPINN(DeepEstimator):
         X_r = self.X_r if X is None else X
         return super().predict(X_r)
 
-    def score(self,X=None,y=None):
+    def score(self,
+              X: np.typing.ArrayLike = None,
+              y: None = None) -> np.float32:
         '''
         Scores how well the model performs on the PDE.
 
@@ -880,8 +896,8 @@ class DeepPINN(DeepEstimator):
     ### CUSTOM METHODS ###
 
     def predict_at_loc(self,
-                       loc: dict,
-                       n_samples: int = 50):
+                       loc: dict[str,Number],
+                       n_samples: int = 50) -> np.ndarray:
         '''
         Predicts the value of the function at a given location.
 
@@ -910,7 +926,7 @@ class DeepPINN(DeepEstimator):
         return self.predict(self._get_data(loc,n_samples,self.mins,self.maxs,label="Running Predict_at_loc: "))
 
     def plot(self,
-             loc: dict,
+             loc: dict[str,Number],
              n_samples: int = 50,
              function: str | None = None,
              vec_el: int | tuple | None = None,

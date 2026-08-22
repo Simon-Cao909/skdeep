@@ -163,14 +163,32 @@ def find_deriv(i,d,var_to_val,tape,variables,derivs,ind,coordinates):
         lbrack = d.find('[')
         rbrack = d.find(']')
 
+        use_default = False
         if lbrack == -1 or rbrack == -1:
             lbrack = d.find('(')
             rbrack = d.find(')')
             if lbrack == -1 or rbrack == -1:
-                raise ValueError("Brackets specifying the variables need to be given when applying ∇")
-        
-        vs = d[lbrack+1:rbrack].split(',')
-        vs = sorted(vs,key=variables.index)
+                vs = []
+                potential_vars = {
+                    'cartesian':['x','y','z'],
+                    'polar':[('r','ρ'),('θ','φ')],
+                    'cylindrical':[('r','ρ'),('θ','φ'),('z',)],
+                    'spherical':[('r','ρ'),('θ',),('φ',)]
+                }[coordinates]
+
+                for pot_vars in potential_vars:
+                    for var in pot_vars:
+                        if var in variables:
+                            vs.append(var)
+                            use_default = True
+                            break
+
+                if not use_default:
+                    raise ValueError("Brackets specifying the variables need to be given when applying ∇")
+
+        if not use_default:
+            vs = d[lbrack+1:rbrack].split(',')
+            vs = sorted(vs,key=variables.index)
 
         expec = {'cartesian':len(vs),'polar':2,'cylindrical':3,'spherical':3}
         if len(vs) != expec[coordinates]:

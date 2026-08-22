@@ -261,8 +261,14 @@ def parse_eqn(eqn):
         l_brack = term.find("(",0,op_ind)
         r_brack = term.find(")",l_brack,op_ind)
 
-        if (l_brack == -1 and r_brack == -1) or (r_brack == 1 + l_brack):
+        special_d_end = ['⋅','●','×',']',')']
+
+        if (l_brack == -1 and r_brack == -1) or (r_brack == 1 + l_brack) or \
+            (term[max(l_brack - 1,0)] in special_d_end) or (term[min(r_brack+1,len(term)-1)] == '_'):
             cf = -1 if sign == '-' else 1
+
+            if r_brack != 1 + l_brack:
+                r_brack = -1
         elif l_brack == -1 or r_brack == -1:
             raise ValueError(f"left bracket found: {True if l_brack != -1 else False}\n"
                              f"right bracket found: {True if r_brack != -1 else False}")
@@ -286,6 +292,8 @@ def parse_eqn(eqn):
             end_sym = find_one(var,['⋅','●','×',']',')'])
             derivs.append(var[nabla_i:end_sym+1])
             var = var[end_sym+1:]
+
+        var = var.replace("(","").replace(")","")
 
         if len(focus) == 1:
             focus.append("")

@@ -1,6 +1,7 @@
 from tensorflow import keras
 from tensorflow.keras import layers as kl
 import numpy as np
+from typing import Literal
 
 from .estimator import DeepEstimator
 from .tools.building.quick_parser import parse_quick
@@ -8,6 +9,7 @@ from .tools.base.sae import SAE
 from .tools.base.vae import VAE, sampling
 from .tools.score import compute_score, neg_mse_score
 from .tools.building.add_block import add_block
+from .tools.types import ModelStructureType
 
 class DeepAutoencoder(DeepEstimator):
     '''
@@ -20,21 +22,21 @@ class DeepAutoencoder(DeepEstimator):
 
     def __init__(
         self,
-        encoder_structure,
-        decoder_structure,
-        model_type='standard',
-        build_setting="normal",
-        input_shape=None,
-        epochs=100,
-        batch_size=32,
-        early_stopping=True,
-        n_iter_no_change=10,
-        validation_split=0.1,
-        verbose=1,
-        optimizer="adam",
-        learning_rate=1e-3,
-        random_state=None,
-        shuffle=True,
+        encoder_structure: ModelStructureType,
+        decoder_structure: ModelStructureType,
+        model_type: Literal['standard','variational'] = 'standard',
+        build_setting: Literal['normal','quick'] = "normal",
+        input_shape: list | tuple | None = None,
+        epochs: int = 100,
+        batch_size: int = 32,
+        early_stopping: bool = True,
+        n_iter_no_change: int = 10,
+        validation_split: float = 0.1,
+        verbose: Literal[0,1,2,'auto'] = 1,
+        optimizer: keras.optimizers.Optimizer | str = "adam",
+        learning_rate: float = 1e-3,
+        random_state: int | None = None,
+        shuffle: bool = True,
     ):
         '''
         Parameters
@@ -93,7 +95,7 @@ class DeepAutoencoder(DeepEstimator):
 
             If 1, the process of training is printed.
 
-        optimizer : str, default='adam'
+        optimizer : str or keras.optimizers.Optimizer, default='adam'
             The optimizer used in training.
 
             See Keras for possibilities.
